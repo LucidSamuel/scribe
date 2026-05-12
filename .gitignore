@@ -1,0 +1,23 @@
+# Rust
+target/
+
+# Lean
+lean/build/
+lean/lake-packages/
+lean/.lake/
+
+# Editor
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Claude Code (local config, commands, prompts)
+.claude/
+prompts/
+NOTES.md
+
+# Environment
+.env

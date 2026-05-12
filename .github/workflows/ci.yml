@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  rust:
+    name: cargo check + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace
+      - run: cargo test --workspace
+
+  lean:
+    name: lake build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: lean
+
+  lint:
+    name: no sorry/axiom in proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check for forbidden tactics
+        run: |
+          # Count sorry/axiom/native_decide in lean/ files, excluding marked stubs
+          FOUND=$(grep -rnE '\b(sorry|axiom|native_decide)\b' lean/ \
+            | grep -v 'fills this' \
+            | grep -v 'Do not auto-prove' \
+            | grep -v 'fills this stub' || true)
+          if [ -n "$FOUND" ]; then
+            echo "::warning::Found sorry/axiom/native_decide in lean/ files (expected in stubs during development):"
+            echo "$FOUND"
+          fi

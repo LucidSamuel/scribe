@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Pre-commit hook: reject commits that add sorry, axiom, or native_decide
+# to Lean files under lean/.
+#
+# Install: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+FORBIDDEN="sorry|axiom|native_decide"
+
+# Only check staged additions (+lines) in lean/*.lean files
+ADDED=$(git diff --cached --diff-filter=ACMR -- 'lean/*.lean' 'lean/**/*.lean' \
+    | grep -E '^\+[^+]' \
+    | grep -Ew "$FORBIDDEN" || true)
+
+if [ -n "$ADDED" ]; then
+    echo "pre-commit: blocked — found sorry, axiom, or native_decide in staged lean/ changes:"
+    echo ""
+    echo "$ADDED"
+    echo ""
+    echo "Remove these before committing. If this is the initial scaffold with"
+    echo "intentional sorry stubs, bypass with: git commit --no-verify"
+    exit 1
+fi

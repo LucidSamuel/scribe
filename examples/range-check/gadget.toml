@@ -1,0 +1,123 @@
+# 8-bit range check via bit decomposition
+#
+# Witness: x and bits b0..b7
+# Constraints:
+#   b_i * (b_i - 1) = 0   for i in [0, 8)   (each bit is boolean)
+#   sum(b_i * 2^i) = x                        (bit decomposition)
+#
+# Soundness: exists k : Fin 256, (k.val : ZMod p) = x
+
+name = "range-check-8bit"
+modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+soundness_spec = "exists k : Fin 256, (k.val : ZMod p) = x"
+
+[[witnesses]]
+id = 0
+name = "x"
+
+[[witnesses]]
+id = 1
+name = "b0"
+
+[[witnesses]]
+id = 2
+name = "b1"
+
+[[witnesses]]
+id = 3
+name = "b2"
+
+[[witnesses]]
+id = 4
+name = "b3"
+
+[[witnesses]]
+id = 5
+name = "b4"
+
+[[witnesses]]
+id = 6
+name = "b5"
+
+[[witnesses]]
+id = 7
+name = "b6"
+
+[[witnesses]]
+id = 8
+name = "b7"
+
+# bit constraints: b_i * (b_i - 1) = 0  =>  b_i^2 - b_i = 0
+# represented as: 1*[b_i, b_i] + (-1)*[b_i] = 0
+
+[[constraints]]
+label = "bit_0"
+terms = [
+    { coeff = "1", vars = [1, 1] },
+    { coeff = "-1", vars = [1] },
+]
+
+[[constraints]]
+label = "bit_1"
+terms = [
+    { coeff = "1", vars = [2, 2] },
+    { coeff = "-1", vars = [2] },
+]
+
+[[constraints]]
+label = "bit_2"
+terms = [
+    { coeff = "1", vars = [3, 3] },
+    { coeff = "-1", vars = [3] },
+]
+
+[[constraints]]
+label = "bit_3"
+terms = [
+    { coeff = "1", vars = [4, 4] },
+    { coeff = "-1", vars = [4] },
+]
+
+[[constraints]]
+label = "bit_4"
+terms = [
+    { coeff = "1", vars = [5, 5] },
+    { coeff = "-1", vars = [5] },
+]
+
+[[constraints]]
+label = "bit_5"
+terms = [
+    { coeff = "1", vars = [6, 6] },
+    { coeff = "-1", vars = [6] },
+]
+
+[[constraints]]
+label = "bit_6"
+terms = [
+    { coeff = "1", vars = [7, 7] },
+    { coeff = "-1", vars = [7] },
+]
+
+[[constraints]]
+label = "bit_7"
+terms = [
+    { coeff = "1", vars = [8, 8] },
+    { coeff = "-1", vars = [8] },
+]
+
+# decomposition: b0*1 + b1*2 + b2*4 + b3*8 + b4*16 + b5*32 + b6*64 + b7*128 - x = 0
+
+[[constraints]]
+label = "decomposition"
+terms = [
+    { coeff = "1", vars = [1] },
+    { coeff = "2", vars = [2] },
+    { coeff = "4", vars = [3] },
+    { coeff = "8", vars = [4] },
+    { coeff = "16", vars = [5] },
+    { coeff = "32", vars = [6] },
+    { coeff = "64", vars = [7] },
+    { coeff = "128", vars = [8] },
+    { coeff = "-1", vars = [0] },
+]
