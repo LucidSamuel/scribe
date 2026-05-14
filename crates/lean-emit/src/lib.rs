@@ -37,6 +37,11 @@ pub fn emit_lean(gadget: &Gadget) -> String {
     // witness parameters
     out.push_str(&format!("    ({} : ZMod p)\n", names.join(" ")));
 
+    // extra hypotheses (e.g. field-size bounds)
+    for h in &gadget.hypotheses {
+        out.push_str(&format!("    ({} : {})\n", h.name, h.lean_type));
+    }
+
     // constraint hypotheses
     for c in &gadget.constraints {
         let label = c.label.replace('-', "_");
@@ -156,5 +161,57 @@ mod tests {
         // select constraint: b * x + y - b * y - z = 0
         assert!(out.contains("h_select : b * x + y - b * y - z = 0"));
         assert!(out.contains("sorry"));
+    }
+
+    #[test]
+    fn emit_poseidon_sbox() {
+        let gadget =
+            gadget_ir::load_gadget_file(&examples_dir().join("poseidon-sbox/gadget.toml")).unwrap();
+        let out = emit_lean(&gadget);
+        assert!(out.contains("theorem poseidon_sbox_sound"));
+        assert!(out.contains("(x q r y : ZMod p)"));
+        assert!(out.contains("h_square_1 : q - x * x = 0"));
+        assert!(out.contains("h_square_2 : r - q * q = 0"));
+        assert!(out.contains("h_output : y - r * x = 0"));
+        assert!(out.contains("y = x ^ 5"));
+    }
+
+    #[test]
+    fn emit_nonzero_check() {
+        let gadget =
+            gadget_ir::load_gadget_file(&examples_dir().join("nonzero-check/gadget.toml")).unwrap();
+        let out = emit_lean(&gadget);
+        assert!(out.contains("theorem nonzero_check_sound"));
+        assert!(out.contains("h_inverse : x * x_inv - (1 : ZMod p) = 0"));
+        assert!(out.contains("x ≠ 0"));
+    }
+
+    #[test]
+    fn emit_edwards_addition() {
+        let gadget = gadget_ir::load_gadget_file(
+            &examples_dir().join("edwards-addition/gadget.toml"),
+        )
+        .unwrap();
+        let out = emit_lean(&gadget);
+        assert!(out.contains("theorem edwards_addition_sound"));
+        assert!(out.contains("(x1 y1 x2 y2 x3 y3 : ZMod p)"));
+        // hypotheses before constraints
+        assert!(out.contains("h_on_curve_1"));
+        assert!(out.contains("h_on_curve_2"));
+        assert!(out.contains("h_add_x"));
+        assert!(out.contains("h_add_y"));
+        assert!(out.contains("168700"));
+    }
+
+    #[test]
+    fn emit_range_check_with_hypothesis() {
+        let gadget =
+            gadget_ir::load_gadget_file(&examples_dir().join("range-check/gadget.toml")).unwrap();
+        let out = emit_lean(&gadget);
+        assert!(out.contains("(hp : p > 256)"));
+        // hypothesis appears before constraints
+        let hp_pos = out.find("hp : p > 256").unwrap();
+        let hbit_pos = out.find("h_bit_0").unwrap();
+        assert!(hp_pos < hbit_pos);
     }
 }

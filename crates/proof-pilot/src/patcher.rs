@@ -1,11 +1,15 @@
 /// Apply a text patch (from LLM output) to a Lean source file.
 ///
-/// Extracts the first Lean/text code block from the LLM response and
-/// replaces everything after `by` on the last `:= by` line through EOF.
+/// Extracts the first Lean/text code block from the LLM response.
+/// Import lines at the top of the block are merged into the file header.
+/// The rest replaces everything after `:= by`.
 pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchError> {
-    let proof_body = extract_code_block(llm_response).ok_or(PatchError::NoCodeBlock)?;
+    let code_block = extract_code_block(llm_response).ok_or(PatchError::NoCodeBlock)?;
 
-    // Reject forbidden tactics in the patch
+    // Split code block into import lines and proof body
+    let (new_imports, proof_body) = split_imports(&code_block);
+
+    // Reject forbidden tactics in the proof body
     for kw in &["sorry", "axiom", "native_decide"] {
         if proof_body.contains(kw) {
             return Err(PatchError::ForbiddenTactic);
@@ -26,21 +30,85 @@ pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchErro
         .or_else(|| proof_body.strip_prefix("by "))
         .unwrap_or(&proof_body);
 
-    // Reconstruct: header + newline + indented proof body
+    // Merge new imports into the header
+    let header = if new_imports.is_empty() {
+        header.to_string()
+    } else {
+        merge_imports(header, &new_imports)
+    };
+
+    // Reconstruct: header + newline + proof body
     let mut result = String::with_capacity(header.len() + proof_body.len() + 2);
-    result.push_str(header);
+    result.push_str(&header);
     result.push('\n');
     result.push_str(proof_body);
     if !result.ends_with('\n') {
         result.push('\n');
     }
 
-    // Verify the theorem statement wasn't altered
-    if !result.starts_with(header) {
-        return Err(PatchError::ModifiesStatement);
+    Ok(result)
+}
+
+/// Split a code block into leading import lines and the remaining proof body.
+fn split_imports(block: &str) -> (Vec<String>, String) {
+    let mut imports = Vec::new();
+    let mut body_start = 0;
+
+    for line in block.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("import ") || trimmed.starts_with("open ") {
+            imports.push(trimmed.to_string());
+            body_start += line.len() + 1; // +1 for newline
+        } else if trimmed.is_empty() && !imports.is_empty() {
+            body_start += line.len() + 1;
+        } else {
+            break;
+        }
     }
 
-    Ok(result)
+    let body = if body_start < block.len() {
+        &block[body_start..]
+    } else {
+        ""
+    };
+
+    (imports, body.to_string())
+}
+
+/// Merge new import lines into the file header, deduplicating.
+fn merge_imports(header: &str, new_imports: &[String]) -> String {
+    // Find where imports end (before the first non-import, non-blank line)
+    let mut insert_pos = 0;
+    for line in header.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("import ") || trimmed.starts_with("open ") || trimmed.is_empty() {
+            insert_pos += line.len() + 1;
+        } else {
+            break;
+        }
+    }
+
+    let existing_header = &header[..insert_pos];
+    let rest = &header[insert_pos..];
+
+    // Collect existing imports for dedup
+    let existing: std::collections::HashSet<&str> = existing_header
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| l.starts_with("import "))
+        .collect();
+
+    // Add only new imports
+    let mut result = existing_header.to_string();
+    for imp in new_imports {
+        if !existing.contains(imp.as_str()) {
+            result.push_str(imp);
+            result.push('\n');
+        }
+    }
+
+    result.push_str(rest);
+    result
 }
 
 /// Extract the first code block (```lean or ```) from LLM output.
@@ -107,6 +175,23 @@ theorem foo_sound
         let result = apply_patch(SOURCE, llm).unwrap();
         assert!(result.contains(":= by\n  trivial"));
         assert!(!result.contains("sorry"));
+    }
+
+    #[test]
+    fn applies_patch_with_new_imports() {
+        let llm = "```lean\nimport Mathlib.Tactic.Ring\n\n  ring_nf\n  trivial\n```";
+        let result = apply_patch(SOURCE, llm).unwrap();
+        assert!(result.contains("import Mathlib.Tactic.Ring"));
+        assert!(result.contains("import Mathlib.Data.ZMod.Basic"));
+        assert!(result.contains(":= by\n  ring_nf\n  trivial"));
+    }
+
+    #[test]
+    fn deduplicates_existing_imports() {
+        let llm = "```lean\nimport Mathlib.Data.ZMod.Basic\n\n  trivial\n```";
+        let result = apply_patch(SOURCE, llm).unwrap();
+        // Should not duplicate the existing import
+        assert_eq!(result.matches("import Mathlib.Data.ZMod.Basic").count(), 1);
     }
 
     #[test]

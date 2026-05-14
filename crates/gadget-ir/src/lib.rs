@@ -8,8 +8,19 @@ pub struct Gadget {
     pub modulus: String,
     pub witnesses: Vec<WitnessVar>,
     pub constraints: Vec<Constraint>,
+    /// Extra hypotheses (e.g. field-size bounds) emitted as theorem parameters.
+    #[serde(default)]
+    pub hypotheses: Vec<Hypothesis>,
     #[serde(default)]
     pub soundness_spec: Option<String>,
+}
+
+/// An extra hypothesis for the theorem (not derived from constraints).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hypothesis {
+    pub name: String,
+    /// Valid Lean 4 type expression (may reference witness names and `p`).
+    pub lean_type: String,
 }
 
 /// A named witness variable.
@@ -52,16 +63,19 @@ pub fn load_gadget_file(path: &std::path::Path) -> Result<Gadget, Box<dyn std::e
 mod tests {
     use super::*;
 
+    fn examples_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("examples")
+    }
+
     #[test]
     fn load_range_check_gadget() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let path = std::path::Path::new(manifest_dir)
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("examples/range-check/gadget.toml");
-        let gadget = load_gadget_file(&path).expect("failed to load gadget.toml");
+        let gadget = load_gadget_file(&examples_dir().join("range-check/gadget.toml"))
+            .expect("failed to load gadget.toml");
         assert_eq!(gadget.name, "range-check-8bit");
         assert_eq!(gadget.witnesses.len(), 9); // x + 8 bits
         assert_eq!(gadget.constraints.len(), 9); // 8 bit constraints + 1 decomposition
@@ -75,5 +89,35 @@ mod tests {
         let decomp = &gadget.constraints[8];
         assert_eq!(decomp.label, "decomposition");
         assert_eq!(decomp.terms.len(), 9);
+
+        // check hypothesis
+        assert_eq!(gadget.hypotheses.len(), 1);
+        assert_eq!(gadget.hypotheses[0].name, "hp");
+    }
+
+    #[test]
+    fn load_poseidon_sbox() {
+        let gadget = load_gadget_file(&examples_dir().join("poseidon-sbox/gadget.toml")).unwrap();
+        assert_eq!(gadget.name, "poseidon-sbox");
+        assert_eq!(gadget.witnesses.len(), 4);
+        assert_eq!(gadget.constraints.len(), 3);
+    }
+
+    #[test]
+    fn load_nonzero_check() {
+        let gadget = load_gadget_file(&examples_dir().join("nonzero-check/gadget.toml")).unwrap();
+        assert_eq!(gadget.name, "nonzero-check");
+        assert_eq!(gadget.witnesses.len(), 2);
+        assert_eq!(gadget.constraints.len(), 1);
+        assert_eq!(gadget.constraints[0].terms.len(), 2);
+    }
+
+    #[test]
+    fn load_edwards_addition() {
+        let gadget = load_gadget_file(&examples_dir().join("edwards-addition/gadget.toml")).unwrap();
+        assert_eq!(gadget.name, "edwards-addition");
+        assert_eq!(gadget.witnesses.len(), 6);
+        assert_eq!(gadget.constraints.len(), 2);
+        assert_eq!(gadget.hypotheses.len(), 2);
     }
 }

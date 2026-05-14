@@ -3,7 +3,7 @@ use proof_pilot::session::{self, SessionConfig, SessionResult};
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: proof-pilot <path/to/File.lean> [--lake-dir <dir>] [--max-iters <n>] [--model <model>] [--system-prompt <file>]");
+        eprintln!("usage: proof-pilot <path/to/File.lean> [--lake-dir <dir>] [--max-iters <n>] [--model <model>] [--system-prompt <file>] [--transcript <file>]");
         std::process::exit(1);
     }
 
@@ -14,6 +14,7 @@ fn main() {
     let mut max_iterations = 10u32;
     let mut model = String::from("claude-sonnet-4-20250514");
     let mut system_prompt = None;
+    let mut transcript = None;
 
     // Parse optional flags
     let mut i = 2;
@@ -38,6 +39,10 @@ fn main() {
                 i += 1;
                 system_prompt = Some(args[i].clone());
             }
+            "--transcript" => {
+                i += 1;
+                transcript = Some(args[i].clone());
+            }
             other => {
                 eprintln!("unknown flag: {}", other);
                 std::process::exit(1);
@@ -52,6 +57,7 @@ fn main() {
         max_iterations,
         model,
         system_prompt,
+        transcript,
     };
 
     match session::run(&config) {
