@@ -13,6 +13,9 @@ fn main() {
         std::process::exit(1);
     });
 
-    let lean_source = lean_emit::emit_lean(&gadget);
+    let lean_source = lean_emit::emit_lean(&gadget).unwrap_or_else(|e| {
+        eprintln!("error emitting Lean for {}: {}", path.display(), e);
+        std::process::exit(1);
+    });
     print!("{}", lean_source);
 }

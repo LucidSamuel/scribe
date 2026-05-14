@@ -114,7 +114,8 @@ mod tests {
 
     #[test]
     fn load_edwards_addition() {
-        let gadget = load_gadget_file(&examples_dir().join("edwards-addition/gadget.toml")).unwrap();
+        let gadget =
+            load_gadget_file(&examples_dir().join("edwards-addition/gadget.toml")).unwrap();
         assert_eq!(gadget.name, "edwards-addition");
         assert_eq!(gadget.witnesses.len(), 6);
         assert_eq!(gadget.constraints.len(), 2);

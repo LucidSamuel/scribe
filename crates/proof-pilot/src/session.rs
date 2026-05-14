@@ -47,8 +47,13 @@ pub fn run(config: &SessionConfig) -> SessionResult {
             .ok()
     });
 
-    log_line(&mut log, &format!("=== proof-pilot session ===\nfile: {}\nmodel: {}\nmax_iters: {}\n",
-        config.lean_file, config.model, config.max_iterations));
+    log_line(
+        &mut log,
+        &format!(
+            "=== proof-pilot session ===\nfile: {}\nmodel: {}\nmax_iters: {}\n",
+            config.lean_file, config.model, config.max_iterations
+        ),
+    );
 
     // Initial build to get starting errors
     let mut last_stderr = match run_lake_build(lake_dir) {
@@ -64,8 +69,17 @@ pub fn run(config: &SessionConfig) -> SessionResult {
     };
 
     for iteration in 1..=config.max_iterations {
-        eprintln!("[proof-pilot] iteration {}/{}", iteration, config.max_iterations);
-        log_line(&mut log, &format!("--- iteration {}/{} ---\n", iteration, config.max_iterations));
+        eprintln!(
+            "[proof-pilot] iteration {}/{}",
+            iteration, config.max_iterations
+        );
+        log_line(
+            &mut log,
+            &format!(
+                "--- iteration {}/{} ---\n",
+                iteration, config.max_iterations
+            ),
+        );
 
         // Read current source
         let source = match fs::read_to_string(lean_path) {
@@ -88,10 +102,11 @@ pub fn run(config: &SessionConfig) -> SessionResult {
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
         // Call Claude CLI
-        let llm_response = match call_claude(&prompt, &config.model, config.system_prompt.as_deref()) {
-            Ok(r) => r,
-            Err(e) => return SessionResult::Failed(format!("claude cli: {}", e)),
-        };
+        let llm_response =
+            match call_claude(&prompt, &config.model, config.system_prompt.as_deref()) {
+                Ok(r) => r,
+                Err(e) => return SessionResult::Failed(format!("claude cli: {}", e)),
+            };
 
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
 
@@ -117,8 +132,13 @@ pub fn run(config: &SessionConfig) -> SessionResult {
         match run_lake_build(lake_dir) {
             Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
                 eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
-                log_line(&mut log, &format!("[build] SUCCESS at iteration {}\n", iteration));
-                return SessionResult::Proven { iterations: iteration };
+                log_line(
+                    &mut log,
+                    &format!("[build] SUCCESS at iteration {}\n", iteration),
+                );
+                return SessionResult::Proven {
+                    iterations: iteration,
+                };
             }
             Ok(r) => {
                 eprintln!("[proof-pilot] build failed, retrying...");
@@ -129,7 +149,13 @@ pub fn run(config: &SessionConfig) -> SessionResult {
         }
     }
 
-    log_line(&mut log, &format!("[result] EXHAUSTED after {} iterations\n", config.max_iterations));
+    log_line(
+        &mut log,
+        &format!(
+            "[result] EXHAUSTED after {} iterations\n",
+            config.max_iterations
+        ),
+    );
 
     SessionResult::Exhausted {
         iterations: config.max_iterations,
@@ -145,7 +171,11 @@ fn log_line(log: &mut Option<fs::File>, msg: &str) {
 }
 
 /// Shell out to `claude` CLI and return stdout.
-fn call_claude(prompt: &str, model: &str, system_prompt: Option<&str>) -> Result<String, std::io::Error> {
+fn call_claude(
+    prompt: &str,
+    model: &str,
+    system_prompt: Option<&str>,
+) -> Result<String, std::io::Error> {
     let mut cmd = Command::new("claude");
     cmd.env_remove("CLAUDECODE")
         .arg("-p")
@@ -161,10 +191,10 @@ fn call_claude(prompt: &str, model: &str, system_prompt: Option<&str>) -> Result
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("claude exited {}: {}", output.status, stderr),
-        ));
+        return Err(std::io::Error::other(format!(
+            "claude exited {}: {}",
+            output.status, stderr
+        )));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())

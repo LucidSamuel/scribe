@@ -21,27 +21,23 @@ fn main() {
     while i < args.len() {
         match args[i].as_str() {
             "--lake-dir" => {
-                i += 1;
-                lake_dir = args[i].clone();
+                lake_dir = flag_value(&args, &mut i, "--lake-dir");
             }
             "--max-iters" => {
-                i += 1;
-                max_iterations = args[i].parse().unwrap_or_else(|_| {
+                let value = flag_value(&args, &mut i, "--max-iters");
+                max_iterations = value.parse().unwrap_or_else(|_| {
                     eprintln!("invalid --max-iters value");
                     std::process::exit(1);
                 });
             }
             "--model" => {
-                i += 1;
-                model = args[i].clone();
+                model = flag_value(&args, &mut i, "--model");
             }
             "--system-prompt" => {
-                i += 1;
-                system_prompt = Some(args[i].clone());
+                system_prompt = Some(flag_value(&args, &mut i, "--system-prompt"));
             }
             "--transcript" => {
-                i += 1;
-                transcript = Some(args[i].clone());
+                transcript = Some(flag_value(&args, &mut i, "--transcript"));
             }
             other => {
                 eprintln!("unknown flag: {}", other);
@@ -64,7 +60,10 @@ fn main() {
         SessionResult::Proven { iterations } => {
             eprintln!("proof complete in {} iteration(s)", iterations);
         }
-        SessionResult::Exhausted { iterations, last_error } => {
+        SessionResult::Exhausted {
+            iterations,
+            last_error,
+        } => {
             eprintln!("gave up after {} iterations", iterations);
             eprintln!("last error:\n{}", last_error);
             std::process::exit(1);
@@ -74,4 +73,12 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn flag_value(args: &[String], i: &mut usize, flag: &str) -> String {
+    *i += 1;
+    args.get(*i).cloned().unwrap_or_else(|| {
+        eprintln!("missing value for {}", flag);
+        std::process::exit(1);
+    })
 }
