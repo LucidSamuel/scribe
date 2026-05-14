@@ -20,9 +20,11 @@ pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchErro
     let marker = ":= by";
     let marker_pos = source.find(marker).ok_or(PatchError::NoMarker)?;
     let splice_pos = marker_pos + marker.len();
+    let proof_end = find_proof_body_end(source, splice_pos);
 
     // Everything before and including `:= by` is the theorem statement
     let header = &source[..splice_pos];
+    let suffix = &source[proof_end..];
 
     // Strip leading `by` from the proof body if the LLM included it
     let proof_body = proof_body
@@ -42,11 +44,64 @@ pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchErro
     result.push_str(&header);
     result.push('\n');
     result.push_str(proof_body);
+    if !suffix.is_empty() && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result.push_str(suffix);
     if !result.ends_with('\n') {
         result.push('\n');
     }
 
     Ok(result)
+}
+
+/// Find the end of the current proof body, preserving later top-level declarations.
+fn find_proof_body_end(source: &str, start: usize) -> usize {
+    let mut offset = 0;
+    let mut first_line = true;
+
+    for line in source[start..].split_inclusive('\n') {
+        let without_newline = line.strip_suffix('\n').unwrap_or(line);
+        if !first_line && is_top_level_boundary(without_newline) {
+            return start + offset;
+        }
+        first_line = false;
+        offset += line.len();
+    }
+
+    source.len()
+}
+
+fn is_top_level_boundary(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.len() != line.len() {
+        return false;
+    }
+
+    let Some(first) = trimmed.split_whitespace().next() else {
+        return false;
+    };
+
+    matches!(
+        first,
+        "abbrev"
+            | "axiom"
+            | "class"
+            | "def"
+            | "example"
+            | "import"
+            | "inductive"
+            | "instance"
+            | "lemma"
+            | "namespace"
+            | "open"
+            | "opaque"
+            | "section"
+            | "set_option"
+            | "structure"
+            | "theorem"
+            | "variable"
+    )
 }
 
 /// Split a code block into leading import lines and the remaining proof body.
@@ -169,6 +224,16 @@ theorem foo_sound
   sorry
 "#;
 
+    const SOURCE_WITH_SUFFIX: &str = r#"import Mathlib.Data.ZMod.Basic
+
+theorem foo_sound :
+    True := by
+  sorry
+
+lemma keep_me : True := by
+  trivial
+"#;
+
     #[test]
     fn applies_valid_patch() {
         let llm = "Here's the proof:\n```lean\n  trivial\n```\n";
@@ -184,6 +249,15 @@ theorem foo_sound
         assert!(result.contains("import Mathlib.Tactic.Ring"));
         assert!(result.contains("import Mathlib.Data.ZMod.Basic"));
         assert!(result.contains(":= by\n  ring_nf\n  trivial"));
+    }
+
+    #[test]
+    fn preserves_later_declarations() {
+        let llm = "```lean\n  trivial\n```";
+        let result = apply_patch(SOURCE_WITH_SUFFIX, llm).unwrap();
+        assert!(result.contains("theorem foo_sound :\n    True := by\n  trivial"));
+        assert!(result.contains("lemma keep_me : True := by\n  trivial"));
+        assert!(!result.contains("sorry"));
     }
 
     #[test]

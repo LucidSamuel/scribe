@@ -44,10 +44,9 @@ pub fn has_forbidden_tactics(build_output: &str, target_file: Option<&str>) -> b
                 .and_then(|f| f.to_str())
                 .unwrap_or(filename);
 
-            build_output.lines().any(|line| {
-                line.contains(basename)
-                    && FORBIDDEN.iter().any(|kw| line.contains(kw))
-            })
+            build_output
+                .lines()
+                .any(|line| line.contains(basename) && FORBIDDEN.iter().any(|kw| line.contains(kw)))
         }
         None => FORBIDDEN.iter().any(|kw| build_output.contains(kw)),
     }
@@ -59,7 +58,10 @@ mod tests {
 
     #[test]
     fn detects_sorry_unfiltered() {
-        assert!(has_forbidden_tactics("warning: declaration uses 'sorry'", None));
+        assert!(has_forbidden_tactics(
+            "warning: declaration uses 'sorry'",
+            None
+        ));
         assert!(has_forbidden_tactics("axiom foo : True", None));
     }
 

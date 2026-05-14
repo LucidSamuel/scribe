@@ -51,8 +51,8 @@ Drives the LLM to close the `sorry` in an emitted Lean file. The loop:
 Hard constraints enforced by the pilot:
 - Never modify the theorem statement
 - Never introduce `sorry`, `axiom`, or `native_decide`
-- Revert after 3 stuck iterations on the same error
-- 20-iteration cap with `NOTES.md` on failure
+- Preserve later top-level declarations when patching the target proof
+- Stop at the configured iteration budget and report the last build error
 
 ## why this works
 
