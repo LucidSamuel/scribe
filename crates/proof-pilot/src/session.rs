@@ -52,7 +52,7 @@ pub fn run(config: &SessionConfig) -> SessionResult {
 
     // Initial build to get starting errors
     let mut last_stderr = match run_lake_build(lake_dir) {
-        Ok(r) if r.success && !has_forbidden_tactics(&r.combined) => {
+        Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
             log_line(&mut log, "initial build: CLEAN (already proven)\n");
             return SessionResult::Proven { iterations: 0 };
         }
@@ -115,7 +115,7 @@ pub fn run(config: &SessionConfig) -> SessionResult {
 
         // Rebuild
         match run_lake_build(lake_dir) {
-            Ok(r) if r.success && !has_forbidden_tactics(&r.combined) => {
+            Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
                 eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
                 log_line(&mut log, &format!("[build] SUCCESS at iteration {}\n", iteration));
                 return SessionResult::Proven { iterations: iteration };
