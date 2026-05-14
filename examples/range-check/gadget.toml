@@ -9,7 +9,7 @@
 
 name = "range-check-8bit"
 modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
-soundness_spec = "exists k : Fin 256, (k.val : ZMod p) = x"
+soundness_spec = "∃ k : Fin 256, (k.val : ZMod p) = x"
 
 [[witnesses]]
 id = 0

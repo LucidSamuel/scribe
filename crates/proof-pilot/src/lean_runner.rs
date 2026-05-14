@@ -6,6 +6,8 @@ pub struct BuildResult {
     pub success: bool,
     pub stdout: String,
     pub stderr: String,
+    /// Combined stdout + stderr for tactic scanning.
+    pub combined: String,
 }
 
 /// Run `lake build` in the given directory and capture output.
@@ -15,10 +17,15 @@ pub fn run_lake_build(working_dir: &Path) -> Result<BuildResult, std::io::Error>
         .current_dir(working_dir)
         .output()?;
 
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let combined = format!("{}\n{}", stdout, stderr);
+
     Ok(BuildResult {
         success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        stdout,
+        stderr,
+        combined,
     })
 }
 

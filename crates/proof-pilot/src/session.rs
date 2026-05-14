@@ -40,10 +40,10 @@ pub fn run(config: &SessionConfig) -> SessionResult {
 
     // Initial build to get starting errors
     let mut last_stderr = match run_lake_build(lake_dir) {
-        Ok(r) if r.success && !has_forbidden_tactics(&r.stderr) => {
+        Ok(r) if r.success && !has_forbidden_tactics(&r.combined) => {
             return SessionResult::Proven { iterations: 0 };
         }
-        Ok(r) => r.stderr,
+        Ok(r) => r.combined,
         Err(e) => return SessionResult::Failed(format!("lake build failed: {}", e)),
     };
 
@@ -89,13 +89,13 @@ pub fn run(config: &SessionConfig) -> SessionResult {
 
         // Rebuild
         match run_lake_build(lake_dir) {
-            Ok(r) if r.success && !has_forbidden_tactics(&r.stderr) => {
+            Ok(r) if r.success && !has_forbidden_tactics(&r.combined) => {
                 eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
                 return SessionResult::Proven { iterations: iteration };
             }
             Ok(r) => {
                 eprintln!("[proof-pilot] build failed, retrying...");
-                last_stderr = r.stderr;
+                last_stderr = r.combined;
             }
             Err(e) => return SessionResult::Failed(format!("lake build: {}", e)),
         }
@@ -110,15 +110,15 @@ pub fn run(config: &SessionConfig) -> SessionResult {
 /// Shell out to `claude` CLI and return stdout.
 fn call_claude(prompt: &str, model: &str, system_prompt: Option<&str>) -> Result<String, std::io::Error> {
     let mut cmd = Command::new("claude");
-    cmd.arg("--print")
+    cmd.env_remove("CLAUDECODE")
+        .arg("-p")
+        .arg(prompt)
         .arg("--model")
         .arg(model);
 
     if let Some(sp) = system_prompt {
         cmd.arg("--system-prompt").arg(sp);
     }
-
-    cmd.arg("--prompt").arg(prompt);
 
     let output = cmd.output()?;
 

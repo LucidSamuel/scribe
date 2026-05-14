@@ -12,7 +12,9 @@ pub fn emit_lean(gadget: &Gadget) -> String {
     let mut out = String::new();
 
     // -- imports
-    out.push_str("import Mathlib.Data.ZMod.Basic\n\n");
+    out.push_str("import ZkGadgets.Field\n");
+    out.push_str("import Mathlib.Data.ZMod.Basic\n");
+    out.push_str("import Mathlib.Algebra.Field.ZMod\n\n");
 
     // -- doc comment
     out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
@@ -136,7 +138,7 @@ mod tests {
         // ends with sorry
         assert!(out.contains("sorry"));
         // soundness spec in conclusion
-        assert!(out.contains("exists k : Fin 256"));
+        assert!(out.contains("∃ k : Fin 256"));
     }
 
     #[test]

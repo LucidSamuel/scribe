@@ -9,7 +9,7 @@
 
 name = "conditional-select"
 modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
-soundness_spec = "(b = 0 and z = y) or (b = 1 and z = x)"
+soundness_spec = "(b = 0 ∧ z = y) ∨ (b = 1 ∧ z = x)"
 
 [[witnesses]]
 id = 0

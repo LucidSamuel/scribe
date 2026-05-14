@@ -12,19 +12,25 @@ pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchErro
         }
     }
 
-    // Find the `:= by` marker in the original source
+    // Find the first `:= by` marker (the theorem's, not any inner `have ... := by`)
     let marker = ":= by";
-    let marker_pos = source.rfind(marker).ok_or(PatchError::NoMarker)?;
+    let marker_pos = source.find(marker).ok_or(PatchError::NoMarker)?;
     let splice_pos = marker_pos + marker.len();
 
     // Everything before and including `:= by` is the theorem statement
     let header = &source[..splice_pos];
 
+    // Strip leading `by` from the proof body if the LLM included it
+    let proof_body = proof_body
+        .strip_prefix("by\n")
+        .or_else(|| proof_body.strip_prefix("by "))
+        .unwrap_or(&proof_body);
+
     // Reconstruct: header + newline + indented proof body
     let mut result = String::with_capacity(header.len() + proof_body.len() + 2);
     result.push_str(header);
     result.push('\n');
-    result.push_str(&proof_body);
+    result.push_str(proof_body);
     if !result.ends_with('\n') {
         result.push('\n');
     }
