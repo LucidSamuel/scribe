@@ -8,7 +8,7 @@
  |___/\___|_|  |_|_.__/ \___|
 ```
 
-generates lean 4 proof scaffolds from zk constraint systems and drives proof completion with an llm feedback loop.
+an llm proof-completion loop for zk gadgets, with the lean kernel as oracle.
 
 ## what it does
 
@@ -60,6 +60,8 @@ cargo run -p proof-pilot -- lean/ZkGadgets/AutoProof.lean \
 proof-pilot calls `claude -p` with the file + build errors, extracts the proof from the response, patches the file, rebuilds, and repeats until `lake build` passes clean or the budget is exhausted. the `--transcript` flag logs every iteration for debugging.
 by default it uses `prompts/lean-prover.md` as the system prompt; pass `--system-prompt <file>` to override it.
 
+see [transcripts/poseidon-sbox.md](transcripts/poseidon-sbox.md) for an example session closing the Poseidon S-box proof in 2 iterations.
+
 ## gadgets
 
 | gadget | constraints | soundness claim |
@@ -99,10 +101,18 @@ examples/
   poseidon-sbox/         poseidon s-box x^5 (4 witnesses, 3 constraints)
   nonzero-check/         field inverse (2 witnesses, 1 constraint)
   edwards-addition/      baby jubjub point addition (6 witnesses, 2 constraints)
+transcripts/
+  poseidon-sbox.md   example proof-pilot session (autonomous closure in 2 iterations)
 docs/
   architecture.md  data flow + crate descriptions
   why.md           motivation
 ```
+
+## docs
+
+- [architecture.md](docs/architecture.md) — data flow, crate descriptions, how the pieces connect
+- [why.md](docs/why.md) — motivation: why formal verification of zk circuits, why an llm loop
+- [poseidon-sbox transcript](transcripts/poseidon-sbox.md) — example proof-pilot session closing a proof in 2 iterations
 
 ## license
 
