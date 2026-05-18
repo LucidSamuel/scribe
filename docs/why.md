@@ -6,4 +6,6 @@ LLMs are getting good at Lean. Not great, but good enough to close routine goals
 
 scribe connects these two facts. It takes a constraint system as a flat IR (no framework dependency), emits a Lean 4 scaffold with the theorem statement and hypotheses, and then drives an LLM to fill in the proof body. The human writes the spec and adjudicates when the LLM gets stuck. The machine does the tactic grind.
 
-The v1 target is deliberately small: an 8-bit range check via bit decomposition. One gadget, one theorem, one proof. The tool's value is not in the complexity of what it verifies but in the automation of how it gets there.
+The v1 target was deliberately small: an 8-bit range check via bit decomposition. One gadget, one theorem, one proof. now scaled to five gadgets: range check, conditional select, Poseidon S-box, nonzero check, and Baby Jubjub Edwards addition, spanning boolean decomposition, polynomial identity, field inverse, and elliptic curve arithmetic. The first three were closed automatically by the LLM loop. The Edwards addition required human-guided algebraic decomposition: the denominator-cleared curve closure identity factors through a key lemma (`E·P − B·Q = x₂y₂·H₁ − x₁y₁·H₂`) that no current LLM finds on its own, but the Lean kernel verified every step.
+
+The tool's value is not in the complexity of what it verifies but in the automation of how it gets there. Where the LLM can close the goal, it does. Where it can't, the scaffold and feedback loop still compress weeks of manual proof work into hours.

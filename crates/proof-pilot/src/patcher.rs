@@ -2,8 +2,22 @@
 ///
 /// Extracts the first Lean/text code block from the LLM response.
 /// Import lines at the top of the block are merged into the file header.
-/// The rest replaces everything after `:= by`.
+/// The rest replaces the selected proof body.
 pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchError> {
+    apply_patch_with_diagnostics(source, llm_response, "", None)
+}
+
+/// Apply a patch to the proof referenced by build diagnostics.
+///
+/// If diagnostics do not identify a proof, this targets the first proof body
+/// that still contains a forbidden placeholder. That lets proof-pilot advance
+/// through decomposed files with multiple helper lemmas.
+pub fn apply_patch_with_diagnostics(
+    source: &str,
+    llm_response: &str,
+    build_output: &str,
+    target_file: Option<&str>,
+) -> Result<String, PatchError> {
     let code_block = extract_code_block(llm_response).ok_or(PatchError::NoCodeBlock)?;
 
     // Split code block into import lines and proof body
@@ -16,15 +30,12 @@ pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchErro
         }
     }
 
-    // Find the first `:= by` marker (the theorem's, not any inner `have ... := by`)
-    let marker = ":= by";
-    let marker_pos = source.find(marker).ok_or(PatchError::NoMarker)?;
-    let splice_pos = marker_pos + marker.len();
-    let proof_end = find_proof_body_end(source, splice_pos);
+    let target =
+        select_proof_target(source, build_output, target_file).ok_or(PatchError::NoMarker)?;
 
     // Everything before and including `:= by` is the theorem statement
-    let header = &source[..splice_pos];
-    let suffix = &source[proof_end..];
+    let header = &source[..target.splice_pos];
+    let suffix = &source[target.end..];
 
     // Strip leading `by` from the proof body if the LLM included it
     let proof_body = proof_body
@@ -53,6 +64,122 @@ pub fn apply_patch(source: &str, llm_response: &str) -> Result<String, PatchErro
     }
 
     Ok(result)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProofTarget {
+    splice_pos: usize,
+    body_start: usize,
+    end: usize,
+    start_line: usize,
+    end_line: usize,
+}
+
+fn select_proof_target(
+    source: &str,
+    build_output: &str,
+    target_file: Option<&str>,
+) -> Option<ProofTarget> {
+    let targets = proof_targets(source);
+
+    if let Some(line) = first_diagnostic_line(build_output, target_file) {
+        if let Some(target) = targets
+            .iter()
+            .copied()
+            .find(|target| target.start_line <= line && line < target.end_line)
+        {
+            return Some(target);
+        }
+    }
+
+    targets
+        .iter()
+        .copied()
+        .find(|target| contains_forbidden(&source[target.body_start..target.end]))
+        .or_else(|| targets.first().copied())
+}
+
+fn proof_targets(source: &str) -> Vec<ProofTarget> {
+    let mut targets = Vec::new();
+    let marker = ":= by";
+
+    for (marker_pos, _) in source.match_indices(marker) {
+        let splice_pos = marker_pos + marker.len();
+        let end = find_proof_body_end(source, splice_pos);
+        targets.push(ProofTarget {
+            splice_pos,
+            body_start: splice_pos,
+            end,
+            start_line: line_number_at(source, find_decl_start(source, marker_pos)),
+            end_line: line_number_at(source, end),
+        });
+    }
+
+    targets
+}
+
+fn first_diagnostic_line(build_output: &str, target_file: Option<&str>) -> Option<usize> {
+    let basename = target_file.and_then(|filename| {
+        std::path::Path::new(filename)
+            .file_name()
+            .and_then(|f| f.to_str())
+    });
+
+    build_output
+        .lines()
+        .filter(|line| basename.is_none_or(|file| line.contains(file)))
+        .find_map(extract_line_number)
+}
+
+fn extract_line_number(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    for idx in 0..bytes.len() {
+        if bytes[idx] != b':' {
+            continue;
+        }
+        let rest = &line[idx + 1..];
+        let digit_count = rest
+            .bytes()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digit_count == 0 || rest.as_bytes().get(digit_count) != Some(&b':') {
+            continue;
+        }
+        let number = &rest[..digit_count];
+        if let Ok(line_number) = number.parse() {
+            return Some(line_number);
+        }
+    }
+
+    None
+}
+
+fn find_decl_start(source: &str, marker_pos: usize) -> usize {
+    let mut candidate = 0;
+    let mut offset = 0;
+
+    for line in source[..marker_pos].split_inclusive('\n') {
+        if is_top_level_boundary(line.strip_suffix('\n').unwrap_or(line)) {
+            candidate = offset;
+        }
+        offset += line.len();
+    }
+
+    candidate
+}
+
+fn line_number_at(source: &str, byte_pos: usize) -> usize {
+    source[..byte_pos.min(source.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
+}
+
+fn contains_forbidden(text: &str) -> bool {
+    ["sorry", "axiom", "native_decide"]
+        .iter()
+        .any(|kw| text.contains(kw))
 }
 
 /// Find the end of the current proof body, preserving later top-level declarations.
@@ -234,6 +361,15 @@ lemma keep_me : True := by
   trivial
 "#;
 
+    const SOURCE_MULTI_PROOF: &str = r#"import Mathlib.Data.ZMod.Basic
+
+lemma helper_one : True := by
+  sorry
+
+lemma helper_two : True := by
+  sorry
+"#;
+
     #[test]
     fn applies_valid_patch() {
         let llm = "Here's the proof:\n```lean\n  trivial\n```\n";
@@ -258,6 +394,30 @@ lemma keep_me : True := by
         assert!(result.contains("theorem foo_sound :\n    True := by\n  trivial"));
         assert!(result.contains("lemma keep_me : True := by\n  trivial"));
         assert!(!result.contains("sorry"));
+    }
+
+    #[test]
+    fn advances_to_next_forbidden_proof() {
+        let first = apply_patch(SOURCE_MULTI_PROOF, "```lean\n  trivial\n```").unwrap();
+        assert!(first.contains("lemma helper_one : True := by\n  trivial"));
+        assert!(first.contains("lemma helper_two : True := by\n  sorry"));
+
+        let second = apply_patch(&first, "```lean\n  trivial\n```").unwrap();
+        assert!(second.contains("lemma helper_one : True := by\n  trivial"));
+        assert!(second.contains("lemma helper_two : True := by\n  trivial"));
+        assert!(!second.contains("sorry"));
+    }
+
+    #[test]
+    fn diagnostics_choose_containing_proof() {
+        let llm = "```lean\n  trivial\n```";
+        let output = "warning: Multi.lean:6:0: declaration uses `sorry`";
+        let result =
+            apply_patch_with_diagnostics(SOURCE_MULTI_PROOF, llm, output, Some("Multi.lean"))
+                .unwrap();
+
+        assert!(result.contains("lemma helper_one : True := by\n  sorry"));
+        assert!(result.contains("lemma helper_two : True := by\n  trivial"));
     }
 
     #[test]

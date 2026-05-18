@@ -1,3 +1,6 @@
 import ZkGadgets.Field
 import ZkGadgets.RangeCheck
 import ZkGadgets.ConditionalSelect
+import ZkGadgets.PoseidonSbox
+import ZkGadgets.NonzeroCheck
+import ZkGadgets.EdwardsAddition

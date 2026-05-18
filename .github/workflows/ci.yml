@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -32,12 +32,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: check for forbidden tactics
         run: |
-          # Count sorry/axiom/native_decide in lean/ files, excluding marked stubs
-          FOUND=$(grep -rnE '\b(sorry|axiom|native_decide)\b' lean/ \
+          FOUND=$(grep -rnE '\b(sorry|axiom|native_decide)\b' lean/ZkGadgets.lean lean/ZkGadgets \
             | grep -v 'fills this' \
             | grep -v 'Do not auto-prove' \
             | grep -v 'fills this stub' || true)
           if [ -n "$FOUND" ]; then
-            echo "::warning::Found sorry/axiom/native_decide in lean/ files (expected in stubs during development):"
+            echo "::error::Found sorry/axiom/native_decide in lean/ files:"
             echo "$FOUND"
+            exit 1
           fi

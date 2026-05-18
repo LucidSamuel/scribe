@@ -11,7 +11,13 @@
 #   x3 + d*x3*x1*x2*y1*y2 - x1*y2 - y1*x2 = 0
 #   y3 - d*y3*x1*x2*y1*y2 - y1*y2 + a*x1*x2 = 0
 #
-# Soundness: if input points are on the curve, output is on the curve.
+# Non-degeneracy: the addition formula denominators must be nonzero.
+# For Baby Jubjub with a != d, this is guaranteed when inputs are on
+# the curve and p != 2, but we state it as an explicit hypothesis
+# to keep the proof purely algebraic.
+#
+# Soundness: if input points are on the curve and denominators are
+# nonzero, output is on the curve.
 
 name = "edwards-addition"
 modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
@@ -48,6 +54,14 @@ lean_type = "(168700 : ZMod p) * x1 * x1 + y1 * y1 = 1 + (168696 : ZMod p) * x1 
 [[hypotheses]]
 name = "h_on_curve_2"
 lean_type = "(168700 : ZMod p) * x2 * x2 + y2 * y2 = 1 + (168696 : ZMod p) * x2 * x2 * y2 * y2"
+
+[[hypotheses]]
+name = "h_nondeg_x"
+lean_type = "(1 : ZMod p) + (168696 : ZMod p) * x1 * x2 * y1 * y2 ≠ 0"
+
+[[hypotheses]]
+name = "h_nondeg_y"
+lean_type = "(1 : ZMod p) - (168696 : ZMod p) * x1 * x2 * y1 * y2 ≠ 0"
 
 # x3 + 168696*x3*x1*x2*y1*y2 - x1*y2 - y1*x2 = 0
 [[constraints]]

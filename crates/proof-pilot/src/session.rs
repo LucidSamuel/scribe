@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::lean_runner::{has_forbidden_tactics, run_lake_build};
-use crate::patcher::apply_patch;
+use crate::patcher::apply_patch_with_diagnostics;
 
 /// Configuration for a proof completion session.
 pub struct SessionConfig {
@@ -16,7 +16,7 @@ pub struct SessionConfig {
     pub max_iterations: u32,
     /// Model to use (e.g. "claude-sonnet-4-20250514").
     pub model: String,
-    /// Path to the system prompt file for Claude.
+    /// System prompt text for Claude (read from file by caller).
     pub system_prompt: Option<String>,
     /// Optional path for transcript log. If set, every iteration is logged.
     pub transcript: Option<String>,
@@ -88,16 +88,7 @@ pub fn run(config: &SessionConfig) -> SessionResult {
         };
 
         // Build prompt for Claude
-        let prompt = format!(
-            "The following Lean 4 file fails to build. \
-             Replace the proof body (everything after `:= by`) so that `lake build` passes \
-             with zero errors and zero `sorry`. Do NOT change the theorem statement. \
-             You may add `import` lines at the top of the code block if needed. \
-             Reply with a single fenced code block containing only the proof body \
-             (optionally preceded by import lines).\n\n\
-             --- file: {} ---\n{}\n\n--- build errors ---\n{}",
-            config.lean_file, source, last_stderr
-        );
+        let prompt = build_prompt(&config.lean_file, &source, &last_stderr, iteration);
 
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
@@ -111,7 +102,12 @@ pub fn run(config: &SessionConfig) -> SessionResult {
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
 
         // Apply patch
-        let patched = match apply_patch(&source, &llm_response) {
+        let patched = match apply_patch_with_diagnostics(
+            &source,
+            &llm_response,
+            &last_stderr,
+            Some(&config.lean_file),
+        ) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("[proof-pilot] patch rejected: {}", e);
@@ -168,6 +164,33 @@ fn log_line(log: &mut Option<fs::File>, msg: &str) {
         let _ = f.write_all(msg.as_bytes());
         let _ = f.flush();
     }
+}
+
+/// Build the user prompt for a proof iteration.
+fn build_prompt(lean_file: &str, source: &str, build_errors: &str, iteration: u32) -> String {
+    let mut prompt = String::new();
+
+    prompt.push_str(
+        "Replace the proof body (everything after `:= by`) so that `lake build` passes \
+         with zero errors and zero `sorry`. Do NOT change the theorem statement. \
+         You may add `import` lines at the top of the code block if needed.\n\n",
+    );
+
+    if iteration > 1 {
+        prompt.push_str(&format!(
+            "This is attempt #{}. Previous attempts failed. \
+             Carefully analyze the build errors and try a DIFFERENT approach.\n\n",
+            iteration
+        ));
+    }
+
+    prompt.push_str("Reply with a single fenced code block containing the proof body ");
+    prompt.push_str("(optionally preceded by import lines). No explanation needed.\n\n");
+
+    prompt.push_str(&format!("--- file: {} ---\n{}\n\n", lean_file, source));
+    prompt.push_str(&format!("--- build errors ---\n{}", build_errors));
+
+    prompt
 }
 
 /// Shell out to `claude` CLI and return stdout.

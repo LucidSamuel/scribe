@@ -119,6 +119,6 @@ mod tests {
         assert_eq!(gadget.name, "edwards-addition");
         assert_eq!(gadget.witnesses.len(), 6);
         assert_eq!(gadget.constraints.len(), 2);
-        assert_eq!(gadget.hypotheses.len(), 2);
+        assert_eq!(gadget.hypotheses.len(), 4);
     }
 }
