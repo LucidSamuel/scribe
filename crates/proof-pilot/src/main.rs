@@ -1,5 +1,7 @@
 use proof_pilot::session::{self, SessionConfig, SessionResult};
 
+const DEFAULT_SYSTEM_PROMPT: &str = "prompts/lean-prover.md";
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -13,7 +15,7 @@ fn main() {
     let mut lake_dir = String::from("lean");
     let mut max_iterations = 10u32;
     let mut model = String::from("claude-sonnet-4-20250514");
-    let mut system_prompt = None;
+    let mut system_prompt_file = Some(DEFAULT_SYSTEM_PROMPT.to_string());
     let mut transcript = None;
 
     // Parse optional flags
@@ -34,7 +36,7 @@ fn main() {
                 model = flag_value(&args, &mut i, "--model");
             }
             "--system-prompt" => {
-                system_prompt = Some(flag_value(&args, &mut i, "--system-prompt"));
+                system_prompt_file = Some(flag_value(&args, &mut i, "--system-prompt"));
             }
             "--transcript" => {
                 transcript = Some(flag_value(&args, &mut i, "--transcript"));
@@ -47,6 +49,14 @@ fn main() {
         i += 1;
     }
 
+    // Read system prompt from file if provided
+    let system_prompt = system_prompt_file.map(|path| {
+        std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            eprintln!("error reading system prompt {}: {}", path, e);
+            std::process::exit(1);
+        })
+    });
+
     let config = SessionConfig {
         lean_file,
         lake_dir,
@@ -58,7 +68,11 @@ fn main() {
 
     match session::run(&config) {
         SessionResult::Proven { iterations } => {
-            eprintln!("proof complete in {} iteration(s)", iterations);
+            if iterations == 0 {
+                eprintln!("already proven");
+            } else {
+                eprintln!("proof complete in {} iteration(s)", iterations);
+            }
         }
         SessionResult::Exhausted {
             iterations,

@@ -12,9 +12,9 @@ generates lean 4 proof scaffolds from zk constraint systems and drives proof com
 
 ## what it does
 
-1. **gadget-ir** — a minimal IR for polynomial constraints over a prime field.
-2. **lean-emit** — reads the IR, emits a Lean 4 file with the theorem statement and `sorry`.
-3. **proof-pilot** — drives the `claude` CLI in a loop: edit proof → `lake build` → read errors → repeat. stops when the kernel accepts or budget is exhausted.
+1. **gadget-ir**: a minimal IR for polynomial constraints over a prime field.
+2. **lean-emit**: reads the IR, emits a Lean 4 file with the theorem statement and `sorry`.
+3. **proof-pilot**: drives the `claude` CLI in a loop: edit proof → `lake build` → read errors → repeat. stops when the kernel accepts or budget is exhausted.
 
 the lean kernel is the oracle. `lake build` returning 0 means the proof is valid. the llm cannot fake it without `sorry` or `axiom`, which are blocked by pre-commit hook and CI.
 
@@ -40,7 +40,7 @@ lake update
 lake build
 ```
 
-`lake build` should exit 0 with no warnings. both gadget proofs are complete.
+`lake build` should exit 0 with no warnings. all five gadget proofs are complete.
 
 ### emit a scaffold
 
@@ -58,6 +58,7 @@ cargo run -p proof-pilot -- lean/ZkGadgets/AutoProof.lean \
 ```
 
 proof-pilot calls `claude -p` with the file + build errors, extracts the proof from the response, patches the file, rebuilds, and repeats until `lake build` passes clean or the budget is exhausted. the `--transcript` flag logs every iteration for debugging.
+by default it uses `prompts/lean-prover.md` as the system prompt; pass `--system-prompt <file>` to override it.
 
 ## gadgets
 
@@ -86,9 +87,12 @@ crates/
   proof-pilot/     LLM proof loop (patcher, lean runner, session logging)
 lean/
   ZkGadgets/
-    Field.lean           field helper lemmas (proven)
-    RangeCheck.lean      8-bit range check soundness (proven)
+    Field.lean              field helper lemmas (proven)
+    RangeCheck.lean         8-bit range check soundness (proven)
     ConditionalSelect.lean  conditional select soundness (proven)
+    PoseidonSbox.lean       poseidon s-box x^5 soundness (proven)
+    NonzeroCheck.lean       field nonzero check soundness (proven)
+    EdwardsAddition.lean    baby jubjub addition closure (proven)
 examples/
   range-check/           8-bit range check (9 witnesses, 9 constraints)
   conditional-select/    conditional select (4 witnesses, 2 constraints)
