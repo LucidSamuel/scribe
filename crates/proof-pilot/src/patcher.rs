@@ -37,11 +37,16 @@ pub fn apply_patch_with_diagnostics(
     let header = &source[..target.splice_pos];
     let suffix = &source[target.end..];
 
+    // If the LLM returned a full theorem (contains `:= by`), extract just
+    // the proof body after the last `:= by`. This handles models that echo
+    // the entire theorem statement in their response.
+    let proof_body = strip_theorem_echo(&proof_body);
+
     // Strip leading `by` from the proof body if the LLM included it
     let proof_body = proof_body
         .strip_prefix("by\n")
         .or_else(|| proof_body.strip_prefix("by "))
-        .unwrap_or(&proof_body);
+        .unwrap_or(proof_body);
 
     // Merge new imports into the header
     let header = if new_imports.is_empty() {
@@ -229,6 +234,23 @@ fn is_top_level_boundary(line: &str) -> bool {
             | "theorem"
             | "variable"
     )
+}
+
+/// If the block contains a `:= by` marker, the LLM likely echoed back the full
+/// theorem statement. Return only the text after the last `:= by`.
+fn strip_theorem_echo(block: &str) -> &str {
+    if let Some(pos) = block.rfind(":= by") {
+        let after = &block[pos + ":= by".len()..];
+        // Only strip if there's actual content after `:= by` (not just whitespace)
+        let trimmed = after.trim_start_matches([' ', '\t']);
+        if trimmed.starts_with('\n') || trimmed.starts_with('\r') {
+            return trimmed.trim_start_matches(['\n', '\r']);
+        }
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+    block
 }
 
 /// Split a code block into leading import lines and the remaining proof body.
@@ -440,6 +462,25 @@ lemma helper_two : True := by
         let llm = "I think you should try ring_nf";
         let err = apply_patch(SOURCE, llm).unwrap_err();
         assert!(matches!(err, PatchError::NoCodeBlock));
+    }
+
+    #[test]
+    fn strips_echoed_theorem_statement() {
+        let llm = "```lean\ntheorem foo_sound\n    (x : ZMod p)\n    (h : x * x = 0) :\n    True := by\n  trivial\n```";
+        let result = apply_patch(SOURCE, llm).unwrap();
+        assert!(result.contains(":= by\n  trivial"));
+        assert!(!result.contains("sorry"));
+        // Must NOT contain a duplicate theorem
+        assert_eq!(result.matches("theorem foo_sound").count(), 1);
+    }
+
+    #[test]
+    fn strips_echoed_theorem_with_imports() {
+        let llm = "```lean\nimport Mathlib.Tactic.Ring\n\ntheorem foo_sound\n    (x : ZMod p)\n    (h : x * x = 0) :\n    True := by\n  trivial\n```";
+        let result = apply_patch(SOURCE, llm).unwrap();
+        assert!(result.contains("import Mathlib.Tactic.Ring"));
+        assert!(result.contains(":= by\n  trivial"));
+        assert_eq!(result.matches("theorem foo_sound").count(), 1);
     }
 
     #[test]

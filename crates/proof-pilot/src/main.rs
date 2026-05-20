@@ -5,7 +5,7 @@ const DEFAULT_SYSTEM_PROMPT: &str = "prompts/lean-prover.md";
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: proof-pilot <path/to/File.lean> [--lake-dir <dir>] [--max-iters <n>] [--model <model>] [--system-prompt <file>] [--transcript <file>]");
+        eprintln!("usage: proof-pilot <path/to/File.lean> [--lake-dir <dir>] [--max-iters <n>] [--model <model>] [--system-prompt <file>] [--transcript <file>] [--lsp]");
         std::process::exit(1);
     }
 
@@ -17,6 +17,7 @@ fn main() {
     let mut model = String::from("claude-sonnet-4-20250514");
     let mut system_prompt_file = Some(DEFAULT_SYSTEM_PROMPT.to_string());
     let mut transcript = None;
+    let mut use_lsp = false;
 
     // Parse optional flags
     let mut i = 2;
@@ -41,6 +42,9 @@ fn main() {
             "--transcript" => {
                 transcript = Some(flag_value(&args, &mut i, "--transcript"));
             }
+            "--lsp" => {
+                use_lsp = true;
+            }
             other => {
                 eprintln!("unknown flag: {}", other);
                 std::process::exit(1);
@@ -64,6 +68,7 @@ fn main() {
         model,
         system_prompt,
         transcript,
+        use_lsp,
     };
 
     match session::run(&config) {
