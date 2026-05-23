@@ -19,5 +19,8 @@ lean/.lake/
 prompts/
 NOTES.md
 
+# MCP config (local dev)
+.mcp.json
+
 # Environment
 .env

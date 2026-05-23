@@ -33,6 +33,26 @@ pub struct GoalState {
     pub goals: Vec<String>,
 }
 
+/// A search result from loogle.
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub name: String,
+    pub type_sig: String,
+    pub module: String,
+}
+
+/// Result of probing a single tactic at a position.
+#[derive(Debug, Clone)]
+pub struct ProbeResult {
+    pub tactic: String,
+    /// "solved", "progress", "failed", or "error"
+    pub status: String,
+    /// Remaining goals after the tactic (if progress or solved).
+    pub remaining_goals: Vec<String>,
+    /// Error message (if failed).
+    pub error: Option<String>,
+}
+
 /// Structured LSP feedback for a Lean file.
 #[derive(Debug)]
 pub struct LspFeedback {
@@ -105,6 +125,92 @@ impl LspBridge {
     /// Get feedback for a file (auto-opens if needed).
     pub fn feedback(&mut self, file: &str) -> Result<LspFeedback, String> {
         self.call(&serde_json::json!({"cmd": "feedback", "file": file}))
+    }
+
+    /// Search Mathlib via loogle for lemmas matching a query.
+    pub fn search(&mut self, query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
+        let cmd = serde_json::json!({
+            "cmd": "search",
+            "query": query,
+            "num_results": num_results,
+        });
+        let line = serde_json::to_string(&cmd).map_err(|e| format!("serialize: {e}"))?;
+        writeln!(self.stdin, "{line}").map_err(|e| format!("write: {e}"))?;
+        self.stdin.flush().map_err(|e| format!("flush: {e}"))?;
+
+        let mut buf = String::new();
+        self.reader
+            .read_line(&mut buf)
+            .map_err(|e| format!("read: {e}"))?;
+
+        let val: Value =
+            serde_json::from_str(buf.trim()).map_err(|e| format!("parse search: {e}"))?;
+
+        val["results"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|r| SearchResult {
+                        name: r["name"].as_str().unwrap_or("").to_string(),
+                        type_sig: r["type"].as_str().unwrap_or("").to_string(),
+                        module: r["module"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect()
+            })
+            .ok_or_else(|| "no results array in search response".to_string())
+    }
+
+    /// Try multiple tactics at a position and report which ones make progress.
+    pub fn probe(
+        &mut self,
+        file: &str,
+        line: usize,
+        col: usize,
+        tactics: &[&str],
+    ) -> Result<Vec<ProbeResult>, String> {
+        let cmd = serde_json::json!({
+            "cmd": "probe",
+            "file": file,
+            "line": line,
+            "col": col,
+            "tactics": tactics,
+        });
+        let json_line = serde_json::to_string(&cmd).map_err(|e| format!("serialize: {e}"))?;
+        writeln!(self.stdin, "{json_line}").map_err(|e| format!("write: {e}"))?;
+        self.stdin.flush().map_err(|e| format!("flush: {e}"))?;
+
+        let mut buf = String::new();
+        self.reader
+            .read_line(&mut buf)
+            .map_err(|e| format!("read: {e}"))?;
+
+        let val: Value =
+            serde_json::from_str(buf.trim()).map_err(|e| format!("parse probe: {e}"))?;
+
+        if let Some(err) = val.get("error").and_then(|e| e.as_str()) {
+            return Err(format!("probe: {err}"));
+        }
+
+        val["results"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|r| ProbeResult {
+                        tactic: r["tactic"].as_str().unwrap_or("").to_string(),
+                        status: r["status"].as_str().unwrap_or("error").to_string(),
+                        remaining_goals: r["remaining_goals"]
+                            .as_array()
+                            .map(|gs| {
+                                gs.iter()
+                                    .filter_map(|s| s.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        error: r["error"].as_str().map(String::from),
+                    })
+                    .collect()
+            })
+            .ok_or_else(|| "no results array in probe response".to_string())
     }
 
     fn call(&mut self, cmd: &Value) -> Result<LspFeedback, String> {
@@ -287,9 +393,249 @@ fn message_mentions_forbidden(message: &str) -> bool {
     FORBIDDEN.iter().any(|kw| lower.contains(kw))
 }
 
+// ─── Error-to-suggestion heuristics ─────────────────────────────────────────
+
+/// Analyze diagnostics and generate actionable suggestions for the LLM.
+///
+/// Pattern-matches on common Lean error messages and provides concrete
+/// fix suggestions. This compensates for models that keep reaching for
+/// tactics that don't work on ZMod p.
+pub fn error_suggestions(feedback: &LspFeedback) -> Vec<String> {
+    let mut suggestions = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for d in &feedback.diagnostics {
+        if d.severity != 1 {
+            continue;
+        }
+        let msg = &d.message;
+
+        // linarith on ZMod p
+        if msg.contains("linarith failed") {
+            let s = "linarith does not work on ZMod p (not linearly ordered). \
+                     Use `linear_combination` instead. For `h : a - b = 0`, \
+                     try `linear_combination h` to get `a = b`.";
+            if seen.insert(s) {
+                suggestions.push(s.to_string());
+            }
+        }
+
+        // unknown tactic — usually a missing import
+        if msg.contains("unknown tactic") {
+            if let Some(tactic_name) = extract_quoted(msg) {
+                let s = format!(
+                    "`{tactic_name}` is not available. Check imports: {}",
+                    suggest_import(&tactic_name)
+                );
+                if seen.insert(Box::leak(s.clone().into_boxed_str()) as &str) {
+                    suggestions.push(s);
+                }
+            }
+        }
+
+        // omega on ZMod p
+        if msg.contains("omega") && msg.contains("failed") {
+            let s = "omega only works on Nat/Int, not ZMod p. \
+                     Use `ring`, `linear_combination`, or `field_simp` instead.";
+            if seen.insert(s) {
+                suggestions.push(s.to_string());
+            }
+        }
+
+        // type mismatch with ZMod
+        if msg.contains("type mismatch") && msg.contains("ZMod") {
+            let s = "Type mismatch in ZMod p context. Ensure numeric literals are \
+                     cast: `(42 : ZMod p)`. Check that all terms have matching types.";
+            if seen.insert(s) {
+                suggestions.push(s.to_string());
+            }
+        }
+
+        // ring failed — usually the goal isn't a pure polynomial identity
+        if msg.contains("ring_nf") && msg.contains("failed") || msg.contains("Try this: ring_nf") {
+            let s = "ring/ring_nf failed — the goal is not a pure polynomial identity. \
+                     You may need to `rw` hypotheses into the goal first, or use \
+                     `linear_combination` with appropriate hypothesis coefficients.";
+            if seen.insert(s) {
+                suggestions.push(s.to_string());
+            }
+        }
+    }
+
+    suggestions
+}
+
+/// Build a loogle search query from the goal state.
+///
+/// Extracts the goal target (after ⊢) and hypothesis types to form a
+/// query that helps find relevant Mathlib lemmas.
+pub fn goal_to_search_query(goal_state: &str) -> Option<String> {
+    // Find the turnstile and extract the goal target
+    let target = goal_state
+        .lines()
+        .find(|l| l.trim_start().starts_with('⊢'))
+        .map(|l| l.trim_start().trim_start_matches('⊢').trim())?;
+
+    // Simplify for loogle: keep the core structure
+    let query = target.to_string();
+    if query.is_empty() {
+        return None;
+    }
+    Some(query)
+}
+
+fn extract_quoted(msg: &str) -> Option<String> {
+    // Match `backtick` or 'single-quoted' identifiers
+    let start = msg.find('`').or_else(|| msg.find('\''))?;
+    let delim = msg.as_bytes()[start] as char;
+    let rest = &msg[start + 1..];
+    let end = rest.find(delim)?;
+    Some(rest[..end].to_string())
+}
+
+fn suggest_import(tactic: &str) -> &'static str {
+    match tactic {
+        "linarith" => "add `import Mathlib.Tactic.Linarith`",
+        "linear_combination" => "add `import Mathlib.Tactic.LinearCombination`",
+        "ring" | "ring_nf" => "add `import Mathlib.Tactic.Ring`",
+        "field_simp" => "add `import Mathlib.Tactic.FieldSimp`",
+        "simp" | "simp_all" => "add `import Mathlib.Tactic.Simp`",
+        "omega" => "add `import Mathlib.Tactic.Omega`",
+        "norm_num" => "add `import Mathlib.Tactic.NormNum`",
+        "positivity" => "add `import Mathlib.Tactic.Positivity`",
+        "polyrith" => "add `import Mathlib.Tactic.Polyrith`",
+        "decide" => "this tactic may not be suitable for ZMod p",
+        _ => "check that the required Mathlib module is imported",
+    }
+}
+
+/// Format search results for inclusion in a prompt.
+pub fn format_search_results(results: &[SearchResult]) -> String {
+    if results.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("--- relevant Mathlib lemmas (loogle) ---\n");
+    for r in results {
+        out.push_str(&format!("{} : {}\n", r.name, r.type_sig));
+    }
+    out.push('\n');
+    out
+}
+
+/// Format probe results for inclusion in a prompt.
+pub fn format_probe_results(results: &[ProbeResult]) -> String {
+    if results.is_empty() {
+        return String::new();
+    }
+
+    let any_progress = results
+        .iter()
+        .any(|r| r.status == "solved" || r.status == "progress");
+    if !any_progress {
+        return String::new();
+    }
+
+    let mut out = String::from("--- tactic probe results ---\n");
+    for r in results {
+        match r.status.as_str() {
+            "solved" => {
+                out.push_str(&format!("  `{}` — CLOSES THE GOAL\n", r.tactic));
+            }
+            "progress" => {
+                out.push_str(&format!("  `{}` — makes progress", r.tactic));
+                if !r.remaining_goals.is_empty() {
+                    out.push_str(&format!(
+                        " ({} goal(s) remaining)",
+                        r.remaining_goals.len()
+                    ));
+                }
+                out.push('\n');
+            }
+            _ => {}
+        }
+    }
+    out.push('\n');
+    out
+}
+
+/// Format error suggestions for inclusion in a prompt.
+pub fn format_suggestions(suggestions: &[String]) -> String {
+    if suggestions.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("--- hints ---\n");
+    for s in suggestions {
+        out.push_str(&format!("- {s}\n"));
+    }
+    out.push('\n');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linarith_heuristic_fires() {
+        let feedback = LspFeedback {
+            success: false,
+            diagnostics: vec![Diagnostic {
+                line: 5,
+                col: 4,
+                severity: 1,
+                message: "linarith failed to find a contradiction\ncase ...\n".to_string(),
+            }],
+            goals: vec![],
+        };
+        let suggestions = error_suggestions(&feedback);
+        assert!(suggestions.iter().any(|s| s.contains("linear_combination")));
+    }
+
+    #[test]
+    fn unknown_tactic_suggests_import() {
+        let feedback = LspFeedback {
+            success: false,
+            diagnostics: vec![Diagnostic {
+                line: 5,
+                col: 4,
+                severity: 1,
+                message: "unknown tactic `linarith`".to_string(),
+            }],
+            goals: vec![],
+        };
+        let suggestions = error_suggestions(&feedback);
+        assert!(suggestions
+            .iter()
+            .any(|s| s.contains("Mathlib.Tactic.Linarith")));
+    }
+
+    #[test]
+    fn goal_to_search_query_extracts_target() {
+        let state = "x : ZMod p\nh : x * x - x = 0\n⊢ x = 0 ∨ x = 1";
+        let query = goal_to_search_query(state).unwrap();
+        assert_eq!(query, "x = 0 ∨ x = 1");
+    }
+
+    #[test]
+    fn probe_results_format_shows_progress() {
+        let results = vec![
+            ProbeResult {
+                tactic: "ring".to_string(),
+                status: "failed".to_string(),
+                remaining_goals: vec![],
+                error: Some("ring failed".to_string()),
+            },
+            ProbeResult {
+                tactic: "simp".to_string(),
+                status: "progress".to_string(),
+                remaining_goals: vec!["⊢ True".to_string()],
+                error: None,
+            },
+        ];
+        let formatted = format_probe_results(&results);
+        assert!(formatted.contains("`simp` — makes progress"));
+        assert!(!formatted.contains("ring")); // failed tactics excluded
+    }
 
     #[test]
     fn formats_forbidden_warnings_beyond_sorry() {

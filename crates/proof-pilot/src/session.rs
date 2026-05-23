@@ -5,8 +5,9 @@ use std::process::Command;
 
 use crate::lean_runner::{has_forbidden_tactics, run_lake_build};
 use crate::lsp_feedback::{
-    feedback_as_build_output, format_lsp_feedback, has_forbidden_in_feedback, LspBridge,
-    LspFeedback,
+    error_suggestions, feedback_as_build_output, format_lsp_feedback, format_probe_results,
+    format_search_results, format_suggestions, goal_to_search_query, has_forbidden_in_feedback,
+    LspBridge, LspFeedback, ProbeResult, SearchResult,
 };
 use crate::patcher::apply_patch_with_diagnostics;
 
@@ -122,7 +123,7 @@ fn run_with_lsp(config: &SessionConfig) -> SessionResult {
                 format_lsp_feedback(&initial_feedback)
             ),
         );
-        last_feedback = FeedbackSource::Lsp(initial_feedback);
+        last_feedback = enrich_feedback(&mut lsp, initial_feedback, &rel_path, &mut log);
     }
 
     for iteration in 1..=config.max_iterations {
@@ -214,7 +215,7 @@ fn run_with_lsp(config: &SessionConfig) -> SessionResult {
                         &mut log,
                         &format!("[build] FAIL\n{}\n", format_lsp_feedback(&fb)),
                     );
-                    last_feedback = FeedbackSource::Lsp(fb);
+                    last_feedback = enrich_feedback(&mut lsp, fb, &rel_path, &mut log);
                 }
             }
             Err(e) => {
@@ -257,14 +258,30 @@ fn run_with_lsp(config: &SessionConfig) -> SessionResult {
 }
 
 enum FeedbackSource {
-    Lsp(LspFeedback),
+    Lsp {
+        feedback: LspFeedback,
+        suggestions: Vec<String>,
+        search_results: Vec<SearchResult>,
+        probe_results: Vec<ProbeResult>,
+    },
     BuildOutput(String),
 }
 
 impl FeedbackSource {
     fn prompt_section(&self) -> String {
         match self {
-            FeedbackSource::Lsp(feedback) => format_lsp_feedback(feedback),
+            FeedbackSource::Lsp {
+                feedback,
+                suggestions,
+                search_results,
+                probe_results,
+            } => {
+                let mut out = format_lsp_feedback(feedback);
+                out.push_str(&format_suggestions(suggestions));
+                out.push_str(&format_search_results(search_results));
+                out.push_str(&format_probe_results(probe_results));
+                out
+            }
             FeedbackSource::BuildOutput(output) => {
                 format!("--- build errors (lake fallback) ---\n{output}")
             }
@@ -273,16 +290,101 @@ impl FeedbackSource {
 
     fn build_output_for_patcher(&self, target_file: &str) -> String {
         match self {
-            FeedbackSource::Lsp(feedback) => feedback_as_build_output(feedback, target_file),
+            FeedbackSource::Lsp { feedback, .. } => {
+                feedback_as_build_output(feedback, target_file)
+            }
             FeedbackSource::BuildOutput(output) => output.clone(),
         }
     }
 
     fn last_error(&self) -> String {
         match self {
-            FeedbackSource::Lsp(feedback) => format_lsp_feedback(feedback),
+            FeedbackSource::Lsp { feedback, .. } => format_lsp_feedback(feedback),
             FeedbackSource::BuildOutput(output) => output.clone(),
         }
+    }
+}
+
+/// Candidate tactics to probe at sorry/error positions.
+const PROBE_TACTICS: &[&str] = &[
+    "ring",
+    "simp",
+    "field_simp",
+    "norm_num",
+    "trivial",
+    "exact?",
+    "apply?",
+];
+
+/// Enrich raw LSP feedback with search results, tactic probes, and heuristic suggestions.
+fn enrich_feedback(
+    lsp: &mut LspBridge,
+    feedback: LspFeedback,
+    rel_path: &str,
+    log: &mut Option<std::fs::File>,
+) -> FeedbackSource {
+    let suggestions = error_suggestions(&feedback);
+
+    // Search loogle for relevant lemmas based on goal state
+    let mut search_results = Vec::new();
+    for g in &feedback.goals {
+        for goal_text in &g.goals {
+            if let Some(query) = goal_to_search_query(goal_text) {
+                match lsp.search(&query, 3) {
+                    Ok(results) if !results.is_empty() => {
+                        log_line(
+                            log,
+                            &format!("[search] query={query:?} → {} result(s)\n", results.len()),
+                        );
+                        search_results.extend(results);
+                    }
+                    Err(e) => {
+                        log_line(log, &format!("[search] failed: {e}\n"));
+                    }
+                    _ => {}
+                }
+                // Only search for the first goal to keep tokens down
+                break;
+            }
+        }
+        if !search_results.is_empty() {
+            break;
+        }
+    }
+
+    // Probe candidate tactics at each sorry/error position
+    let mut probe_results = Vec::new();
+    // Only probe at the first error position to avoid excessive LSP calls
+    if let Some(g) = feedback.goals.first() {
+        match lsp.probe(rel_path, g.line, g.col, PROBE_TACTICS) {
+            Ok(results) => {
+                let useful: Vec<_> = results
+                    .iter()
+                    .filter(|r| r.status == "solved" || r.status == "progress")
+                    .collect();
+                if !useful.is_empty() {
+                    log_line(
+                        log,
+                        &format!(
+                            "[probe] {} tactic(s) made progress at line {}\n",
+                            useful.len(),
+                            g.line + 1
+                        ),
+                    );
+                }
+                probe_results = results;
+            }
+            Err(e) => {
+                log_line(log, &format!("[probe] failed: {e}\n"));
+            }
+        }
+    }
+
+    FeedbackSource::Lsp {
+        feedback,
+        suggestions,
+        search_results,
+        probe_results,
     }
 }
 
@@ -536,6 +638,7 @@ fn relative_lean_path(lean_file: &Path, lake_dir: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lsp_feedback::{Diagnostic, GoalState};
 
     #[test]
     fn lsp_prompt_preserves_lake_fallback_output() {
@@ -555,5 +658,53 @@ mod tests {
             feedback.build_output_for_patcher("Foo.lean"),
             "Foo.lean:12:2: error: unsolved goals"
         );
+    }
+
+    #[test]
+    fn lsp_prompt_includes_enrichment() {
+        let feedback = FeedbackSource::Lsp {
+            feedback: LspFeedback {
+                success: false,
+                diagnostics: vec![Diagnostic {
+                    line: 10,
+                    col: 2,
+                    severity: 1,
+                    message: "linarith failed to find a contradiction".to_string(),
+                }],
+                goals: vec![GoalState {
+                    line: 10,
+                    col: 2,
+                    goals: vec!["x : ZMod p\n⊢ q = x * x".to_string()],
+                }],
+            },
+            suggestions: vec![
+                "linarith does not work on ZMod p. Use `linear_combination` instead.".to_string(),
+            ],
+            search_results: vec![SearchResult {
+                name: "sub_eq_zero".to_string(),
+                type_sig: "a - b = 0 ↔ a = b".to_string(),
+                module: "Mathlib.Algebra.Group.Basic".to_string(),
+            }],
+            probe_results: vec![ProbeResult {
+                tactic: "ring".to_string(),
+                status: "progress".to_string(),
+                remaining_goals: vec!["⊢ False".to_string()],
+                error: None,
+            }],
+        };
+
+        let prompt = build_lsp_prompt(
+            "Foo.lean",
+            "theorem foo : True := by\n  sorry",
+            &feedback,
+            2,
+        );
+
+        assert!(prompt.contains("--- hints ---"));
+        assert!(prompt.contains("linear_combination"));
+        assert!(prompt.contains("--- relevant Mathlib lemmas (loogle) ---"));
+        assert!(prompt.contains("sub_eq_zero"));
+        assert!(prompt.contains("--- tactic probe results ---"));
+        assert!(prompt.contains("`ring` — makes progress"));
     }
 }
