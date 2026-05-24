@@ -121,20 +121,20 @@ def probe_tactics(client, file_path, line, col, tactics):
 
     lines = content.splitlines()
 
-    # Find the tactic at (line, col) — typically a sorry or failed tactic.
-    # We'll replace the entire line's tactic content with each candidate.
+    # Replace from (line, col) to end of line with each candidate tactic.
+    # This preserves any prefix on the line before the cursor position.
     if line >= len(lines):
         return {"error": f"line {line} out of range (file has {len(lines)} lines)"}
 
-    # Find the indentation of the target line
     target_line = lines[line]
-    indent = len(target_line) - len(target_line.lstrip())
-    indent_str = target_line[:indent]
+    # Clamp col to line length so we don't go out of bounds
+    col = min(col, len(target_line))
+    prefix = target_line[:col]
 
     results = []
     for tactic in tactics:
-        # Build modified content: replace the line at (line) with the candidate tactic
-        modified_lines = lines[:line] + [indent_str + tactic] + lines[line + 1:]
+        # Replace from cursor position to end of line with the candidate tactic
+        modified_lines = lines[:line] + [prefix + tactic] + lines[line + 1:]
         modified_content = "\n".join(modified_lines)
         if content.endswith("\n"):
             modified_content += "\n"

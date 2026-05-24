@@ -146,6 +146,13 @@ impl LspBridge {
         let val: Value =
             serde_json::from_str(buf.trim()).map_err(|e| format!("parse search: {e}"))?;
 
+        // Propagate error from Python bridge (e.g. loogle outage)
+        if let Some(err) = val["error"].as_str() {
+            if !err.is_empty() {
+                return Err(format!("loogle: {err}"));
+            }
+        }
+
         val["results"]
             .as_array()
             .map(|arr| {
@@ -402,7 +409,7 @@ fn message_mentions_forbidden(message: &str) -> bool {
 /// tactics that don't work on ZMod p.
 pub fn error_suggestions(feedback: &LspFeedback) -> Vec<String> {
     let mut suggestions = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for d in &feedback.diagnostics {
         if d.severity != 1 {
@@ -414,9 +421,10 @@ pub fn error_suggestions(feedback: &LspFeedback) -> Vec<String> {
         if msg.contains("linarith failed") {
             let s = "linarith does not work on ZMod p (not linearly ordered). \
                      Use `linear_combination` instead. For `h : a - b = 0`, \
-                     try `linear_combination h` to get `a = b`.";
-            if seen.insert(s) {
-                suggestions.push(s.to_string());
+                     try `linear_combination h` to get `a = b`."
+                .to_string();
+            if seen.insert(s.clone()) {
+                suggestions.push(s);
             }
         }
 
@@ -427,7 +435,7 @@ pub fn error_suggestions(feedback: &LspFeedback) -> Vec<String> {
                     "`{tactic_name}` is not available. Check imports: {}",
                     suggest_import(&tactic_name)
                 );
-                if seen.insert(Box::leak(s.clone().into_boxed_str()) as &str) {
+                if seen.insert(s.clone()) {
                     suggestions.push(s);
                 }
             }
@@ -436,18 +444,20 @@ pub fn error_suggestions(feedback: &LspFeedback) -> Vec<String> {
         // omega on ZMod p
         if msg.contains("omega") && msg.contains("failed") {
             let s = "omega only works on Nat/Int, not ZMod p. \
-                     Use `ring`, `linear_combination`, or `field_simp` instead.";
-            if seen.insert(s) {
-                suggestions.push(s.to_string());
+                     Use `ring`, `linear_combination`, or `field_simp` instead."
+                .to_string();
+            if seen.insert(s.clone()) {
+                suggestions.push(s);
             }
         }
 
         // type mismatch with ZMod
         if msg.contains("type mismatch") && msg.contains("ZMod") {
             let s = "Type mismatch in ZMod p context. Ensure numeric literals are \
-                     cast: `(42 : ZMod p)`. Check that all terms have matching types.";
-            if seen.insert(s) {
-                suggestions.push(s.to_string());
+                     cast: `(42 : ZMod p)`. Check that all terms have matching types."
+                .to_string();
+            if seen.insert(s.clone()) {
+                suggestions.push(s);
             }
         }
 
@@ -455,9 +465,10 @@ pub fn error_suggestions(feedback: &LspFeedback) -> Vec<String> {
         if msg.contains("ring_nf") && msg.contains("failed") || msg.contains("Try this: ring_nf") {
             let s = "ring/ring_nf failed — the goal is not a pure polynomial identity. \
                      You may need to `rw` hypotheses into the goal first, or use \
-                     `linear_combination` with appropriate hypothesis coefficients.";
-            if seen.insert(s) {
-                suggestions.push(s.to_string());
+                     `linear_combination` with appropriate hypothesis coefficients."
+                .to_string();
+            if seen.insert(s.clone()) {
+                suggestions.push(s);
             }
         }
     }
