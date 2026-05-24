@@ -143,28 +143,7 @@ impl LspBridge {
             .read_line(&mut buf)
             .map_err(|e| format!("read: {e}"))?;
 
-        let val: Value =
-            serde_json::from_str(buf.trim()).map_err(|e| format!("parse search: {e}"))?;
-
-        // Propagate error from Python bridge (e.g. loogle outage)
-        if let Some(err) = val["error"].as_str() {
-            if !err.is_empty() {
-                return Err(format!("loogle: {err}"));
-            }
-        }
-
-        val["results"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .map(|r| SearchResult {
-                        name: r["name"].as_str().unwrap_or("").to_string(),
-                        type_sig: r["type"].as_str().unwrap_or("").to_string(),
-                        module: r["module"].as_str().unwrap_or("").to_string(),
-                    })
-                    .collect()
-            })
-            .ok_or_else(|| "no results array in search response".to_string())
+        parse_search_response(buf.trim())
     }
 
     /// Try multiple tactics at a position and report which ones make progress.
@@ -308,6 +287,29 @@ fn parse_feedback(json_str: &str) -> Result<LspFeedback, String> {
         diagnostics,
         goals,
     })
+}
+
+fn parse_search_response(json_str: &str) -> Result<Vec<SearchResult>, String> {
+    let val: Value = serde_json::from_str(json_str).map_err(|e| format!("parse search: {e}"))?;
+
+    if let Some(err) = val.get("error").and_then(|e| e.as_str()) {
+        if !err.is_empty() {
+            return Err(format!("loogle: {err}"));
+        }
+    }
+
+    val["results"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|r| SearchResult {
+                    name: r["name"].as_str().unwrap_or("").to_string(),
+                    type_sig: r["type"].as_str().unwrap_or("").to_string(),
+                    module: r["module"].as_str().unwrap_or("").to_string(),
+                })
+                .collect()
+        })
+        .ok_or_else(|| "no results array in search response".to_string())
 }
 
 /// Format LSP feedback into a prompt section for Claude.
@@ -555,10 +557,7 @@ pub fn format_probe_results(results: &[ProbeResult]) -> String {
             "progress" => {
                 out.push_str(&format!("  `{}` — makes progress", r.tactic));
                 if !r.remaining_goals.is_empty() {
-                    out.push_str(&format!(
-                        " ({} goal(s) remaining)",
-                        r.remaining_goals.len()
-                    ));
+                    out.push_str(&format!(" ({} goal(s) remaining)", r.remaining_goals.len()));
                 }
                 out.push('\n');
             }
@@ -618,6 +617,39 @@ mod tests {
         assert!(suggestions
             .iter()
             .any(|s| s.contains("Mathlib.Tactic.Linarith")));
+    }
+
+    #[test]
+    fn unknown_tactic_suggestions_deduplicate_owned_strings() {
+        let feedback = LspFeedback {
+            success: false,
+            diagnostics: vec![
+                Diagnostic {
+                    line: 5,
+                    col: 4,
+                    severity: 1,
+                    message: "unknown tactic `linarith`".to_string(),
+                },
+                Diagnostic {
+                    line: 6,
+                    col: 4,
+                    severity: 1,
+                    message: "unknown tactic `linarith`".to_string(),
+                },
+            ],
+            goals: vec![],
+        };
+
+        let suggestions = error_suggestions(&feedback);
+        assert_eq!(suggestions.len(), 1);
+    }
+
+    #[test]
+    fn search_response_error_wins_over_empty_results() {
+        let err = parse_search_response(r#"{"results":[],"error":"loogle unavailable"}"#)
+            .expect_err("search errors must not be treated as empty results");
+
+        assert!(err.contains("loogle unavailable"));
     }
 
     #[test]

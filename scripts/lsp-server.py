@@ -110,6 +110,38 @@ def search_loogle(query, num_results=5):
         return {"results": [], "error": str(e)}
 
 
+def replace_span_at_position(line_text, col, replacement):
+    """Replace the tactic/expression span at col while preserving the rest of the line."""
+    col = max(0, min(col, len(line_text)))
+
+    start = col
+    while start < len(line_text) and line_text[start].isspace():
+        start += 1
+
+    if start < len(line_text) and col < len(line_text) and not line_text[col].isspace():
+        start = col
+        while start > 0:
+            prev = line_text[start - 1]
+            if prev.isspace() or prev in ";|":
+                break
+            if start >= 3 and line_text[start - 3:start] == "<;>":
+                break
+            start -= 1
+
+    end = start
+    while end < len(line_text):
+        if line_text.startswith("<;>", end):
+            break
+        if line_text[end] in ";|":
+            break
+        end += 1
+
+    while end > start and line_text[end - 1].isspace():
+        end -= 1
+
+    return f"{line_text[:start]}{replacement}{line_text[end:]}"
+
+
 def probe_tactics(client, file_path, line, col, tactics):
     """Try each tactic at a position and report goal state / success."""
     try:
@@ -121,20 +153,15 @@ def probe_tactics(client, file_path, line, col, tactics):
 
     lines = content.splitlines()
 
-    # Replace from (line, col) to end of line with each candidate tactic.
-    # This preserves any prefix on the line before the cursor position.
+    # Replace the tactic/expression span at (line, col), preserving other
+    # tactics/expressions on the same line.
     if line >= len(lines):
         return {"error": f"line {line} out of range (file has {len(lines)} lines)"}
 
-    target_line = lines[line]
-    # Clamp col to line length so we don't go out of bounds
-    col = min(col, len(target_line))
-    prefix = target_line[:col]
-
     results = []
     for tactic in tactics:
-        # Replace from cursor position to end of line with the candidate tactic
-        modified_lines = lines[:line] + [prefix + tactic] + lines[line + 1:]
+        modified_line = replace_span_at_position(lines[line], col, tactic)
+        modified_lines = lines[:line] + [modified_line] + lines[line + 1:]
         modified_content = "\n".join(modified_lines)
         if content.endswith("\n"):
             modified_content += "\n"
