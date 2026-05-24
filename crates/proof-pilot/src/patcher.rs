@@ -236,12 +236,29 @@ fn is_top_level_boundary(line: &str) -> bool {
     )
 }
 
-/// If the block contains a `:= by` marker, the LLM likely echoed back the full
-/// theorem statement. Return only the text after the last `:= by`.
+/// If the block contains a theorem-level `:= by` marker, the LLM likely echoed
+/// back the full theorem statement. Return only the text after that `:= by`.
+///
+/// Only triggers when the `:= by` is preceded by a top-level declaration keyword
+/// (theorem, lemma, def, etc.) on an earlier line. `have ... := by` inside a proof
+/// body is left alone.
 fn strip_theorem_echo(block: &str) -> &str {
-    if let Some(pos) = block.rfind(":= by") {
-        let after = &block[pos + ":= by".len()..];
-        // Only strip if there's actual content after `:= by` (not just whitespace)
+    // Find all `:= by` positions and check if any are preceded by a declaration keyword
+    let marker = ":= by";
+    for (pos, _) in block.match_indices(marker) {
+        let before = &block[..pos];
+        // Check if any line before this `:= by` starts with a top-level keyword
+        let has_decl = before.lines().any(|line| {
+            let first = line.split_whitespace().next().unwrap_or("");
+            matches!(
+                first,
+                "theorem" | "lemma" | "def" | "example" | "instance"
+            )
+        });
+        if !has_decl {
+            continue;
+        }
+        let after = &block[pos + marker.len()..];
         let trimmed = after.trim_start_matches([' ', '\t']);
         if trimmed.starts_with('\n') || trimmed.starts_with('\r') {
             return trimmed.trim_start_matches(['\n', '\r']);
@@ -481,6 +498,15 @@ lemma helper_two : True := by
         assert!(result.contains("import Mathlib.Tactic.Ring"));
         assert!(result.contains(":= by\n  trivial"));
         assert_eq!(result.matches("theorem foo_sound").count(), 1);
+    }
+
+    #[test]
+    fn preserves_have_with_assign_by() {
+        let llm = "```lean\n  have hq : q = x * x := by linear_combination h1\n  have hr : r = q * q := by linear_combination h2\n  rw [hr, hq]; ring\n```";
+        let result = apply_patch(SOURCE, llm).unwrap();
+        assert!(result.contains("have hq"));
+        assert!(result.contains("have hr"));
+        assert!(result.contains("rw [hr, hq]; ring"));
     }
 
     #[test]
