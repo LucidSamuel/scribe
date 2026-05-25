@@ -7,3 +7,4 @@ description = "LLM-driven Lean proof completion loop via Claude CLI"
 
 [dependencies]
 serde_json = "1"
+ureq = "2"

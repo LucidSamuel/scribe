@@ -1,8 +1,8 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
 
+use crate::backend::Backend;
 use crate::lean_runner::{has_forbidden_tactics, run_lake_build};
 use crate::lsp_feedback::{
     error_suggestions, feedback_as_build_output, format_lsp_feedback, format_probe_results,
@@ -19,9 +19,7 @@ pub struct SessionConfig {
     pub lake_dir: String,
     /// Maximum number of iterations before giving up.
     pub max_iterations: u32,
-    /// Model to use (e.g. "claude-sonnet-4-20250514").
-    pub model: String,
-    /// System prompt text for Claude (read from file by caller).
+    /// System prompt text (read from file by caller).
     pub system_prompt: Option<String>,
     /// Optional path for transcript log. If set, every iteration is logged.
     pub transcript: Option<String>,
@@ -42,19 +40,19 @@ pub enum SessionResult {
 
 /// Run a proof completion session.
 ///
-/// Loop: read lean file → get feedback (LSP or lake build) → send to Claude →
+/// Loop: read lean file → get feedback (LSP or lake build) → send to backend →
 /// get patch → apply → verify → repeat until green or budget exhausted.
-pub fn run(config: &SessionConfig) -> SessionResult {
+pub fn run(config: &SessionConfig, backend: &dyn Backend) -> SessionResult {
     if config.use_lsp {
-        run_with_lsp(config)
+        run_with_lsp(config, backend)
     } else {
-        run_with_lake_build(config)
+        run_with_lake_build(config, backend)
     }
 }
 
 // ─── LSP-based feedback loop ────────────────────────────────────────────────
 
-fn run_with_lsp(config: &SessionConfig) -> SessionResult {
+fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult {
     let lean_path = Path::new(&config.lean_file);
     let lake_dir = Path::new(&config.lake_dir);
 
@@ -62,8 +60,8 @@ fn run_with_lsp(config: &SessionConfig) -> SessionResult {
     log_line(
         &mut log,
         &format!(
-            "=== proof-pilot session (LSP mode) ===\nfile: {}\nmodel: {}\nmax_iters: {}\n",
-            config.lean_file, config.model, config.max_iterations
+            "=== proof-pilot session (LSP mode) ===\nfile: {}\nbackend: {}\nmax_iters: {}\n",
+            config.lean_file, backend.name(), config.max_iterations
         ),
     );
 
@@ -84,7 +82,7 @@ fn run_with_lsp(config: &SessionConfig) -> SessionResult {
         Ok(b) => b,
         Err(e) => {
             eprintln!("[proof-pilot] LSP bridge failed: {e}, falling back to lake build");
-            return run_with_lake_build(config);
+            return run_with_lake_build(config, backend);
         }
     };
 
@@ -149,9 +147,9 @@ fn run_with_lsp(config: &SessionConfig) -> SessionResult {
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
         let llm_response =
-            match call_claude(&prompt, &config.model, config.system_prompt.as_deref()) {
+            match backend.complete(&prompt, config.system_prompt.as_deref()) {
                 Ok(r) => r,
-                Err(e) => return SessionResult::Failed(format!("claude cli: {e}")),
+                Err(e) => return SessionResult::Failed(format!("backend: {e}")),
             };
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
 
@@ -390,7 +388,7 @@ fn enrich_feedback(
 
 // ─── Original lake-build feedback loop (unchanged) ──────────────────────────
 
-fn run_with_lake_build(config: &SessionConfig) -> SessionResult {
+fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> SessionResult {
     let lean_path = Path::new(&config.lean_file);
     let lake_dir = Path::new(&config.lake_dir);
 
@@ -398,8 +396,8 @@ fn run_with_lake_build(config: &SessionConfig) -> SessionResult {
     log_line(
         &mut log,
         &format!(
-            "=== proof-pilot session ===\nfile: {}\nmodel: {}\nmax_iters: {}\n",
-            config.lean_file, config.model, config.max_iterations
+            "=== proof-pilot session ===\nfile: {}\nbackend: {}\nmax_iters: {}\n",
+            config.lean_file, backend.name(), config.max_iterations
         ),
     );
 
@@ -440,11 +438,10 @@ fn run_with_lake_build(config: &SessionConfig) -> SessionResult {
 
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
-        // Call Claude CLI
         let llm_response =
-            match call_claude(&prompt, &config.model, config.system_prompt.as_deref()) {
+            match backend.complete(&prompt, config.system_prompt.as_deref()) {
                 Ok(r) => r,
-                Err(e) => return SessionResult::Failed(format!("claude cli: {}", e)),
+                Err(e) => return SessionResult::Failed(format!("backend: {e}")),
             };
 
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
@@ -585,36 +582,6 @@ fn log_line(log: &mut Option<fs::File>, msg: &str) {
         let _ = f.write_all(msg.as_bytes());
         let _ = f.flush();
     }
-}
-
-/// Shell out to `claude` CLI and return stdout.
-fn call_claude(
-    prompt: &str,
-    model: &str,
-    system_prompt: Option<&str>,
-) -> Result<String, std::io::Error> {
-    let mut cmd = Command::new("claude");
-    cmd.env_remove("CLAUDECODE")
-        .arg("-p")
-        .arg(prompt)
-        .arg("--model")
-        .arg(model);
-
-    if let Some(sp) = system_prompt {
-        cmd.arg("--system-prompt").arg(sp);
-    }
-
-    let output = cmd.output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(std::io::Error::other(format!(
-            "claude exited {}: {}",
-            output.status, stderr
-        )));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Compute relative path of `lean_file` from `lake_dir`.
