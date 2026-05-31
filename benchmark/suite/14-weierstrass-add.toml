@@ -1,0 +1,84 @@
+# Short Weierstrass point addition: y^2 = x^3 + 3
+#
+# Addition formula (distinct points, x1 ≠ x2):
+#   lam = (y2 - y1) / (x2 - x1)
+#   x3 = lam^2 - x1 - x2
+#   y3 = lam * (x1 - x3) - y1
+#
+# Witnesses: x1, y1, x2, y2, x3, y3, lam
+# Soundness: output point is on curve
+
+name = "weierstrass-add"
+modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+soundness_spec = "y3 * y3 = x3 * x3 * x3 + (3 : ZMod p)"
+
+[[witnesses]]
+id = 0
+name = "x1"
+
+[[witnesses]]
+id = 1
+name = "y1"
+
+[[witnesses]]
+id = 2
+name = "x2"
+
+[[witnesses]]
+id = 3
+name = "y2"
+
+[[witnesses]]
+id = 4
+name = "x3"
+
+[[witnesses]]
+id = 5
+name = "y3"
+
+[[witnesses]]
+id = 6
+name = "lam"
+
+[[hypotheses]]
+name = "h_on_curve_1"
+lean_type = "y1 * y1 = x1 * x1 * x1 + (3 : ZMod p)"
+
+[[hypotheses]]
+name = "h_on_curve_2"
+lean_type = "y2 * y2 = x2 * x2 * x2 + (3 : ZMod p)"
+
+[[hypotheses]]
+name = "h_distinct"
+lean_type = "x2 - x1 ≠ 0"
+
+# lam * (x2 - x1) - (y2 - y1) = 0
+# = lam*x2 - lam*x1 - y2 + y1 = 0
+[[constraints]]
+label = "slope"
+terms = [
+    { coeff = "1", vars = [6, 2] },
+    { coeff = "-1", vars = [6, 0] },
+    { coeff = "-1", vars = [3] },
+    { coeff = "1", vars = [1] },
+]
+
+# x3 + x1 + x2 - lam*lam = 0
+[[constraints]]
+label = "x_coord"
+terms = [
+    { coeff = "1", vars = [4] },
+    { coeff = "1", vars = [0] },
+    { coeff = "1", vars = [2] },
+    { coeff = "-1", vars = [6, 6] },
+]
+
+# y3 + y1 - lam*x1 + lam*x3 = 0
+[[constraints]]
+label = "y_coord"
+terms = [
+    { coeff = "1", vars = [5] },
+    { coeff = "1", vars = [1] },
+    { coeff = "-1", vars = [6, 0] },
+    { coeff = "1", vars = [6, 4] },
+]
