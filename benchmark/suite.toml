@@ -1,0 +1,99 @@
+# ZKGadgetEval benchmark suite manifest
+#
+# Each entry defines a gadget with its tier (difficulty) and constraint count.
+# Tiers:
+#   1 = single-tactic (linear_combination, ring, rcases)
+#   2 = multi-step (case splits, substitution chains, 2-5 tactic lines)
+#   3 = deep algebraic (curve arithmetic, multi-hypothesis, 5+ tactic lines)
+
+version = "0.1.0"
+
+[[gadgets]]
+file = "suite/01-range-check-8.toml"
+tier = 2
+constraints = 9
+description = "8-bit range check via bit decomposition"
+
+[[gadgets]]
+file = "suite/02-boolean-check.toml"
+tier = 1
+constraints = 1
+description = "Boolean constraint: b = 0 ∨ b = 1"
+
+[[gadgets]]
+file = "suite/03-nonzero-check.toml"
+tier = 1
+constraints = 1
+description = "Non-zero via multiplicative inverse"
+
+[[gadgets]]
+file = "suite/04-equality-check.toml"
+tier = 1
+constraints = 1
+description = "Field element equality"
+
+[[gadgets]]
+file = "suite/05-add-gate.toml"
+tier = 1
+constraints = 1
+description = "Addition gate: z = x + y"
+
+[[gadgets]]
+file = "suite/06-mul-gate.toml"
+tier = 1
+constraints = 1
+description = "Multiplication gate: z = x * y"
+
+[[gadgets]]
+file = "suite/07-conditional-select.toml"
+tier = 2
+constraints = 2
+description = "Conditional select: z = if b then x else y"
+
+[[gadgets]]
+file = "suite/08-poseidon-sbox.toml"
+tier = 2
+constraints = 3
+description = "Poseidon S-box: y = x^5"
+
+[[gadgets]]
+file = "suite/09-poseidon-sbox-7.toml"
+tier = 2
+constraints = 4
+description = "Poseidon S-box (BLS12-381): y = x^7"
+
+[[gadgets]]
+file = "suite/10-swap-gate.toml"
+tier = 2
+constraints = 3
+description = "Conditional swap of two values"
+
+[[gadgets]]
+file = "suite/11-is-zero.toml"
+tier = 2
+constraints = 2
+description = "Is-zero indicator: out=1 iff x=0"
+
+[[gadgets]]
+file = "suite/12-polynomial-eval.toml"
+tier = 2
+constraints = 3
+description = "Degree-3 polynomial evaluation via Horner"
+
+[[gadgets]]
+file = "suite/13-edwards-add.toml"
+tier = 3
+constraints = 2
+description = "Baby Jubjub Edwards curve point addition"
+
+[[gadgets]]
+file = "suite/14-weierstrass-add.toml"
+tier = 3
+constraints = 3
+description = "Short Weierstrass curve point addition"
+
+[[gadgets]]
+file = "suite/15-inner-product.toml"
+tier = 3
+constraints = 5
+description = "4-element inner product with accumulators"

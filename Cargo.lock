@@ -759,6 +759,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zkgadget-eval"
+version = "0.1.0"
+dependencies = [
+ "gadget-ir",
+ "lean-emit",
+ "proof-pilot",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"

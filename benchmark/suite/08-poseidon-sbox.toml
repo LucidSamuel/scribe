@@ -1,0 +1,56 @@
+# Poseidon S-box: y = x^5 via squaring chain
+#
+# The non-linear core of the Poseidon hash function.
+# Decomposed into multiplications to stay within R1CS-style constraints.
+#
+# Witnesses: x (input), q (= x^2), r (= x^4), y (= x^5 output)
+# Constraints:
+#   q - x*x = 0       (squaring step 1)
+#   r - q*q = 0       (squaring step 2)
+#   y - r*x = 0       (final multiply)
+#
+# Soundness: y = x ^ 5
+
+name = "poseidon-sbox"
+modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+soundness_spec = "y = x ^ 5"
+
+[[witnesses]]
+id = 0
+name = "x"
+
+[[witnesses]]
+id = 1
+name = "q"
+
+[[witnesses]]
+id = 2
+name = "r"
+
+[[witnesses]]
+id = 3
+name = "y"
+
+# q - x*x = 0
+[[constraints]]
+label = "square_1"
+terms = [
+    { coeff = "1", vars = [1] },
+    { coeff = "-1", vars = [0, 0] },
+]
+
+# r - q*q = 0
+[[constraints]]
+label = "square_2"
+terms = [
+    { coeff = "1", vars = [2] },
+    { coeff = "-1", vars = [1, 1] },
+]
+
+# y - r*x = 0
+[[constraints]]
+label = "output"
+terms = [
+    { coeff = "1", vars = [3] },
+    { coeff = "-1", vars = [2, 0] },
+]

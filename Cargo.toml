@@ -4,6 +4,7 @@ members = [
     "crates/gadget-ir",
     "crates/lean-emit",
     "crates/proof-pilot",
+    "crates/bench",
 ]
 
 [workspace.package]

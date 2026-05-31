@@ -1,0 +1,25 @@
+# Equality check: x = y
+#
+# Witness: x, y
+# Constraint: x - y = 0
+# Soundness: x = y
+
+name = "equality-check"
+modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+soundness_spec = "x = y"
+
+[[witnesses]]
+id = 0
+name = "x"
+
+[[witnesses]]
+id = 1
+name = "y"
+
+# x - y = 0
+[[constraints]]
+label = "equal"
+terms = [
+    { coeff = "1", vars = [0] },
+    { coeff = "-1", vars = [1] },
+]

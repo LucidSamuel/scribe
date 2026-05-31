@@ -1,0 +1,30 @@
+# Addition gate: z = x + y
+#
+# Witness: x, y, z
+# Constraint: x + y - z = 0
+# Soundness: z = x + y
+
+name = "add-gate"
+modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+soundness_spec = "z = x + y"
+
+[[witnesses]]
+id = 0
+name = "x"
+
+[[witnesses]]
+id = 1
+name = "y"
+
+[[witnesses]]
+id = 2
+name = "z"
+
+# x + y - z = 0
+[[constraints]]
+label = "add"
+terms = [
+    { coeff = "1", vars = [0] },
+    { coeff = "1", vars = [1] },
+    { coeff = "-1", vars = [2] },
+]
