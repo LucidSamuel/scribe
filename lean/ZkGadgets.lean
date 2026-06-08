@@ -4,3 +4,4 @@ import ZkGadgets.ConditionalSelect
 import ZkGadgets.PoseidonSbox
 import ZkGadgets.NonzeroCheck
 import ZkGadgets.EdwardsAddition
+import ZkGadgets.HalvaRangeCheck

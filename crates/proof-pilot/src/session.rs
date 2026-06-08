@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::backend::Backend;
-use crate::lean_runner::{has_forbidden_tactics, run_lake_build};
+use crate::lean_runner::{has_forbidden_tactics, run_lake_build_for_file};
 use crate::lsp_feedback::{
     error_suggestions, feedback_as_build_output, format_lsp_feedback, format_probe_results,
     format_search_results, format_suggestions, goal_to_search_query, has_forbidden_in_feedback,
@@ -98,7 +98,7 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
             &mut log,
             "initial LSP check: CLEAN; verifying with lake build\n",
         );
-        match run_lake_build(lake_dir) {
+        match run_lake_build_for_file(lake_dir, lean_path) {
             Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
                 log_line(&mut log, "initial lake build: CLEAN (already proven)\n");
                 return SessionResult::Proven { iterations: 0 };
@@ -185,8 +185,8 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
                         &format!("[build] SUCCESS at iteration {iteration}\n"),
                     );
 
-                    // Final verification with lake build (belt + suspenders)
-                    match run_lake_build(lake_dir) {
+                    // Final verification with the exact target file.
+                    match run_lake_build_for_file(lake_dir, lean_path) {
                         Ok(r)
                             if r.success
                                 && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) =>
@@ -218,8 +218,8 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
             }
             Err(e) => {
                 eprintln!("[proof-pilot] LSP feedback error: {e}, using lake build fallback");
-                // Fall back to lake build for this iteration
-                match run_lake_build(lake_dir) {
+                // Fall back to target-specific Lean verification for this iteration.
+                match run_lake_build_for_file(lake_dir, lean_path) {
                     Ok(r)
                         if r.success
                             && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) =>
@@ -402,7 +402,7 @@ fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> Session
     );
 
     // Initial build to get starting errors
-    let mut last_stderr = match run_lake_build(lake_dir) {
+    let mut last_stderr = match run_lake_build_for_file(lake_dir, lean_path) {
         Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
             log_line(&mut log, "initial build: CLEAN (already proven)\n");
             return SessionResult::Proven { iterations: 0 };
@@ -470,7 +470,7 @@ fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> Session
         }
 
         // Rebuild
-        match run_lake_build(lake_dir) {
+        match run_lake_build_for_file(lake_dir, lean_path) {
             Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
                 eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
                 log_line(

@@ -1,0 +1,13 @@
+[package]
+name = "halva-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bridge from Halva halo2-to-Lean extraction to scribe's proof-pilot"
+
+[[bin]]
+name = "halva-bridge"
+path = "src/main.rs"
+
+[dependencies]
+proof-pilot = { path = "../proof-pilot" }
