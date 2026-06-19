@@ -284,6 +284,89 @@ pub fn resolve_api_key(explicit: Option<&str>, env_var: &str) -> Option<String> 
         .or_else(|| std::env::var(env_var).ok())
 }
 
+/// Require an API key, resolving from an explicit value or environment variable.
+///
+/// Prints an error and calls `std::process::exit(1)` if neither is available.
+pub fn require_api_key(explicit: Option<&str>, env_var: &str, backend: &str) -> String {
+    resolve_api_key(explicit, env_var).unwrap_or_else(|| {
+        eprintln!("{backend} backend requires --api-key or {env_var} env var");
+        std::process::exit(1);
+    })
+}
+
+/// Construct a `Box<dyn Backend>` from a name, optional model, API key, and base URL.
+///
+/// Recognized names: `claude` / `claude-cli`, `anthropic`, `openai`, `leanstral`,
+/// `leanstral-local`, `openai-compat`.
+/// Exits the process with a diagnostic message if the name is unknown or required
+/// parameters (key, URL) are missing.
+pub fn make_backend(
+    name: &str,
+    model: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+) -> Box<dyn Backend> {
+    match name {
+        "claude" | "claude-cli" => {
+            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+            Box::new(ClaudeCli::new(m))
+        }
+        "anthropic" => {
+            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+            let key = require_api_key(api_key.as_deref(), "ANTHROPIC_API_KEY", "anthropic");
+            let mut b = AnthropicApi::new(m, key);
+            if let Some(url) = base_url {
+                b = b.with_base_url(url);
+            }
+            Box::new(b)
+        }
+        "openai" => {
+            let m = model.unwrap_or_else(|| "gpt-4o".into());
+            let key = require_api_key(api_key.as_deref(), "OPENAI_API_KEY", "openai");
+            let url = base_url.unwrap_or_else(|| "https://api.openai.com/v1".into());
+            Box::new(
+                OpenAiCompatible::new(m, Some(key), url)
+                    .with_completion_tokens()
+                    .with_name("openai".into()),
+            )
+        }
+        "leanstral" => {
+            let m = model.unwrap_or_else(|| "leanstral-v1".into());
+            let key = require_api_key(api_key.as_deref(), "LEANSTRAL_API_KEY", "leanstral");
+            let url = base_url.unwrap_or_else(|| {
+                eprintln!(
+                    "leanstral backend requires --base-url (e.g. https://api.leanstral.ai/v1)"
+                );
+                std::process::exit(1);
+            });
+            Box::new(OpenAiCompatible::new(m, Some(key), url).with_name("leanstral".into()))
+        }
+        "leanstral-local" => {
+            let m = model.unwrap_or_else(|| "leanstral-v1".into());
+            let url = base_url.unwrap_or_else(|| "http://localhost:8000/v1".into());
+            Box::new(OpenAiCompatible::new(m, api_key, url).with_name("leanstral-local".into()))
+        }
+        "openai-compat" => {
+            let m = model.unwrap_or_else(|| {
+                eprintln!("openai-compat backend requires --model");
+                std::process::exit(1);
+            });
+            let url = base_url.unwrap_or_else(|| {
+                eprintln!("openai-compat backend requires --base-url");
+                std::process::exit(1);
+            });
+            Box::new(OpenAiCompatible::new(m, api_key, url).with_name("openai-compat".into()))
+        }
+        other => {
+            eprintln!("unknown backend: {other}");
+            eprintln!(
+                "available: claude, anthropic, openai, leanstral, leanstral-local, openai-compat"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

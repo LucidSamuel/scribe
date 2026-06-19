@@ -265,7 +265,7 @@ fn main() {
         );
 
         let start = Instant::now();
-        let result = session::run(&config, backend.as_ref());
+        let (result, _journal) = session::run(&config, backend.as_ref());
         let elapsed = start.elapsed().as_secs_f64();
 
         let (proved, iterations, error) = match result {

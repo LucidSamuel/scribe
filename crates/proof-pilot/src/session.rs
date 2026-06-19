@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::backend::Backend;
+use crate::journal::{IterationRecord, SessionJournal};
 use crate::lean_runner::{has_forbidden_tactics, run_lake_build_for_file};
 use crate::lsp_feedback::{
     error_suggestions, feedback_as_build_output, format_lsp_feedback, format_probe_results,
@@ -38,21 +39,57 @@ pub enum SessionResult {
     Failed(String),
 }
 
+impl SessionResult {
+    fn outcome_str(&self) -> &'static str {
+        match self {
+            SessionResult::Proven { .. } => "proven",
+            SessionResult::Exhausted { .. } => "exhausted",
+            SessionResult::Failed(_) => "failed",
+        }
+    }
+}
+
+/// Read the toolchain string from `<lake_dir>/lean-toolchain`, or return empty string.
+fn read_toolchain(lake_dir: &Path) -> String {
+    let toolchain_path = lake_dir.join("lean-toolchain");
+    fs::read_to_string(&toolchain_path)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
 /// Run a proof completion session.
 ///
 /// Loop: read lean file → get feedback (LSP or lake build) → send to backend →
 /// get patch → apply → verify → repeat until green or budget exhausted.
-pub fn run(config: &SessionConfig, backend: &dyn Backend) -> SessionResult {
-    if config.use_lsp {
-        run_with_lsp(config, backend)
+///
+/// Returns the session result and a `SessionJournal` recording every iteration.
+pub fn run(config: &SessionConfig, backend: &dyn Backend) -> (SessionResult, SessionJournal) {
+    let lake_dir = Path::new(&config.lake_dir);
+    let toolchain = read_toolchain(lake_dir);
+    let mut journal = SessionJournal::new(
+        config.lean_file.clone(),
+        backend.name().to_string(),
+        toolchain,
+    );
+
+    let result = if config.use_lsp {
+        run_with_lsp(config, backend, &mut journal)
     } else {
-        run_with_lake_build(config, backend)
-    }
+        run_with_lake_build(config, backend, &mut journal)
+    };
+
+    journal.outcome = result.outcome_str().to_string();
+    (result, journal)
 }
 
 // ─── LSP-based feedback loop ────────────────────────────────────────────────
 
-fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult {
+fn run_with_lsp(
+    config: &SessionConfig,
+    backend: &dyn Backend,
+    journal: &mut SessionJournal,
+) -> SessionResult {
     let lean_path = Path::new(&config.lean_file);
     let lake_dir = Path::new(&config.lake_dir);
 
@@ -82,7 +119,7 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
         Ok(b) => b,
         Err(e) => {
             eprintln!("[proof-pilot] LSP bridge failed: {e}, falling back to lake build");
-            return run_with_lake_build(config, backend);
+            return run_with_lake_build(config, backend, journal);
         }
     };
 
@@ -137,13 +174,13 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
             ),
         );
 
-        let source = match fs::read_to_string(lean_path) {
+        let source_before = match fs::read_to_string(lean_path) {
             Ok(s) => s,
             Err(e) => return SessionResult::Failed(format!("read {}: {e}", config.lean_file)),
         };
 
         // Build prompt with structured LSP feedback
-        let prompt = build_lsp_prompt(&config.lean_file, &source, &last_feedback, iteration);
+        let prompt = build_lsp_prompt(&config.lean_file, &source_before, &last_feedback, iteration);
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
         let llm_response =
@@ -155,16 +192,30 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
 
         // Apply patch — use synthetic build output for the patcher's diagnostic targeting
         let build_output = last_feedback.build_output_for_patcher(&config.lean_file);
-        let patched = match apply_patch_with_diagnostics(
-            &source,
+        let (patched, patch_applied) = match apply_patch_with_diagnostics(
+            &source_before,
             &llm_response,
             &build_output,
             Some(&config.lean_file),
         ) {
-            Ok(p) => p,
+            Ok(p) => (p, true),
             Err(e) => {
                 eprintln!("[proof-pilot] patch rejected: {e}");
                 log_line(&mut log, &format!("[patch] REJECTED: {e}\n"));
+
+                // Record failed patch iteration
+                journal.push(IterationRecord {
+                    index: iteration,
+                    source_before: source_before.clone(),
+                    source_after: source_before.clone(),
+                    prompt: prompt.clone(),
+                    llm_response: llm_response.clone(),
+                    build_errors: build_output.clone(),
+                    goal_states: last_feedback.goal_states(),
+                    suggestions: last_feedback.suggestions(),
+                    patch_applied: false,
+                });
+
                 continue;
             }
         };
@@ -176,7 +227,8 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
         }
 
         // Get fresh LSP feedback (close + reopen to pick up disk changes)
-        match lsp.feedback_after_update(&rel_path) {
+        let new_build_errors;
+        let iteration_result = match lsp.feedback_after_update(&rel_path) {
             Ok(fb) => {
                 if fb.success && !has_forbidden_in_feedback(&fb) {
                     eprintln!("[proof-pilot] proof accepted at iteration {iteration} (LSP)");
@@ -191,9 +243,10 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
                             if r.success
                                 && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) =>
                         {
-                            return SessionResult::Proven {
+                            new_build_errors = String::new();
+                            Some(SessionResult::Proven {
                                 iterations: iteration,
-                            };
+                            })
                         }
                         Ok(r) => {
                             eprintln!(
@@ -203,9 +256,13 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
                                 &mut log,
                                 &format!("[build] LSP/lake mismatch\n{}\n", r.combined),
                             );
+                            new_build_errors = r.combined.clone();
                             last_feedback = FeedbackSource::BuildOutput(r.combined);
+                            None
                         }
-                        Err(e) => return SessionResult::Failed(format!("lake build verify: {e}")),
+                        Err(e) => {
+                            return SessionResult::Failed(format!("lake build verify: {e}"))
+                        }
                     }
                 } else {
                     eprintln!("[proof-pilot] build failed (LSP), retrying...");
@@ -213,7 +270,9 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
                         &mut log,
                         &format!("[build] FAIL\n{}\n", format_lsp_feedback(&fb)),
                     );
+                    new_build_errors = format_lsp_feedback(&fb);
                     last_feedback = enrich_feedback(&mut lsp, fb, &rel_path, &mut log);
+                    None
                 }
             }
             Err(e) => {
@@ -224,20 +283,39 @@ fn run_with_lsp(config: &SessionConfig, backend: &dyn Backend) -> SessionResult 
                         if r.success
                             && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) =>
                     {
-                        return SessionResult::Proven {
+                        new_build_errors = String::new();
+                        Some(SessionResult::Proven {
                             iterations: iteration,
-                        };
+                        })
                     }
                     Ok(r) => {
                         log_line(
                             &mut log,
                             &format!("[build] FAIL (fallback)\n{}\n", r.combined),
                         );
+                        new_build_errors = r.combined.clone();
                         last_feedback = FeedbackSource::BuildOutput(r.combined);
+                        None
                     }
                     Err(e) => return SessionResult::Failed(format!("lake build: {e}")),
                 }
             }
+        };
+
+        journal.push(IterationRecord {
+            index: iteration,
+            source_before,
+            source_after: patched,
+            prompt,
+            llm_response,
+            build_errors: new_build_errors,
+            goal_states: last_feedback.goal_states(),
+            suggestions: last_feedback.suggestions(),
+            patch_applied,
+        });
+
+        if let Some(result) = iteration_result {
+            return result;
         }
     }
 
@@ -299,6 +377,26 @@ impl FeedbackSource {
         match self {
             FeedbackSource::Lsp { feedback, .. } => format_lsp_feedback(feedback),
             FeedbackSource::BuildOutput(output) => output.clone(),
+        }
+    }
+
+    /// Extract goal state strings for the journal (LSP mode only).
+    fn goal_states(&self) -> Vec<String> {
+        match self {
+            FeedbackSource::Lsp { feedback, .. } => feedback
+                .goals
+                .iter()
+                .flat_map(|g| g.goals.iter().cloned())
+                .collect(),
+            FeedbackSource::BuildOutput(_) => Vec::new(),
+        }
+    }
+
+    /// Extract suggestion strings for the journal (LSP mode only).
+    fn suggestions(&self) -> Vec<String> {
+        match self {
+            FeedbackSource::Lsp { suggestions, .. } => suggestions.clone(),
+            FeedbackSource::BuildOutput(_) => Vec::new(),
         }
     }
 }
@@ -386,9 +484,13 @@ fn enrich_feedback(
     }
 }
 
-// ─── Original lake-build feedback loop (unchanged) ──────────────────────────
+// ─── Original lake-build feedback loop (unchanged logic) ────────────────────
 
-fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> SessionResult {
+fn run_with_lake_build(
+    config: &SessionConfig,
+    backend: &dyn Backend,
+    journal: &mut SessionJournal,
+) -> SessionResult {
     let lean_path = Path::new(&config.lean_file);
     let lake_dir = Path::new(&config.lake_dir);
 
@@ -428,13 +530,13 @@ fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> Session
         );
 
         // Read current source
-        let source = match fs::read_to_string(lean_path) {
+        let source_before = match fs::read_to_string(lean_path) {
             Ok(s) => s,
             Err(e) => return SessionResult::Failed(format!("read {}: {}", config.lean_file, e)),
         };
 
         // Build prompt for Claude
-        let prompt = build_prompt(&config.lean_file, &source, &last_stderr, iteration);
+        let prompt = build_prompt(&config.lean_file, &source_before, &last_stderr, iteration);
 
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
@@ -447,17 +549,31 @@ fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> Session
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
 
         // Apply patch
-        let patched = match apply_patch_with_diagnostics(
-            &source,
+        let (patched, patch_applied, build_errors_after) = match apply_patch_with_diagnostics(
+            &source_before,
             &llm_response,
             &last_stderr,
             Some(&config.lean_file),
         ) {
-            Ok(p) => p,
+            Ok(p) => (p, true, last_stderr.clone()),
             Err(e) => {
                 eprintln!("[proof-pilot] patch rejected: {}", e);
                 log_line(&mut log, &format!("[patch] REJECTED: {}\n", e));
-                last_stderr = format!("(patch error: {})\n{}", e, last_stderr);
+                let combined_error = format!("(patch error: {})\n{}", e, last_stderr);
+
+                journal.push(IterationRecord {
+                    index: iteration,
+                    source_before: source_before.clone(),
+                    source_after: source_before.clone(),
+                    prompt: prompt.clone(),
+                    llm_response: llm_response.clone(),
+                    build_errors: last_stderr.clone(),
+                    goal_states: Vec::new(),
+                    suggestions: Vec::new(),
+                    patch_applied: false,
+                });
+
+                last_stderr = combined_error;
                 continue;
             }
         };
@@ -470,13 +586,26 @@ fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> Session
         }
 
         // Rebuild
-        match run_lake_build_for_file(lake_dir, lean_path) {
+        let (build_result, new_stderr) = match run_lake_build_for_file(lake_dir, lean_path) {
             Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
                 eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
                 log_line(
                     &mut log,
                     &format!("[build] SUCCESS at iteration {}\n", iteration),
                 );
+
+                journal.push(IterationRecord {
+                    index: iteration,
+                    source_before,
+                    source_after: patched,
+                    prompt,
+                    llm_response,
+                    build_errors: build_errors_after,
+                    goal_states: Vec::new(),
+                    suggestions: Vec::new(),
+                    patch_applied,
+                });
+
                 return SessionResult::Proven {
                     iterations: iteration,
                 };
@@ -484,10 +613,25 @@ fn run_with_lake_build(config: &SessionConfig, backend: &dyn Backend) -> Session
             Ok(r) => {
                 eprintln!("[proof-pilot] build failed, retrying...");
                 log_line(&mut log, &format!("[build] FAIL\n{}\n", r.combined));
-                last_stderr = r.combined;
+                let stderr = r.combined.clone();
+                (r.combined, stderr)
             }
             Err(e) => return SessionResult::Failed(format!("lake build: {}", e)),
-        }
+        };
+
+        journal.push(IterationRecord {
+            index: iteration,
+            source_before,
+            source_after: patched,
+            prompt,
+            llm_response,
+            build_errors: build_result,
+            goal_states: Vec::new(),
+            suggestions: Vec::new(),
+            patch_applied,
+        });
+
+        last_stderr = new_stderr;
     }
 
     log_line(
@@ -673,5 +817,34 @@ mod tests {
         assert!(prompt.contains("sub_eq_zero"));
         assert!(prompt.contains("--- tactic probe results ---"));
         assert!(prompt.contains("`ring` — makes progress"));
+    }
+
+    #[test]
+    fn feedback_source_goal_states_lsp() {
+        let feedback = FeedbackSource::Lsp {
+            feedback: LspFeedback {
+                success: false,
+                diagnostics: vec![],
+                goals: vec![GoalState {
+                    line: 5,
+                    col: 2,
+                    goals: vec!["⊢ True".to_string(), "⊢ False".to_string()],
+                }],
+            },
+            suggestions: vec!["try trivial".to_string()],
+            search_results: vec![],
+            probe_results: vec![],
+        };
+        let states = feedback.goal_states();
+        assert_eq!(states, vec!["⊢ True", "⊢ False"]);
+        let sugs = feedback.suggestions();
+        assert_eq!(sugs, vec!["try trivial"]);
+    }
+
+    #[test]
+    fn feedback_source_goal_states_build_output() {
+        let feedback = FeedbackSource::BuildOutput("error: unsolved goals".to_string());
+        assert!(feedback.goal_states().is_empty());
+        assert!(feedback.suggestions().is_empty());
     }
 }

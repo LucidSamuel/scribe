@@ -1,0 +1,38 @@
+# ── Rust build artifacts ──────────────────────────────────────────────────
+target/
+**/*.rs.bk
+**/.cargo/
+
+# ── Lean build artifacts ──────────────────────────────────────────────────
+lean/.lake/
+lean/**.olean
+lean/**.ilean
+lean/**.trace
+
+# ── Git ───────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.githooks/
+
+# ── CI / editor ───────────────────────────────────────────────────────────
+.github/
+.vscode/
+.idea/
+
+# ── Docs / transcripts (not needed in image) ─────────────────────────────
+docs/
+transcripts/
+roadmap-v2.md
+*.md
+
+# ── Dev / test artifacts ──────────────────────────────────────────────────
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Secrets / environment ─────────────────────────────────────────────────
+.env
+.env.*
+secrets/

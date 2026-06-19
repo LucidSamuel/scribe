@@ -1,0 +1,15 @@
+[package]
+name = "scribe-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "scribe — unified CLI for ZK gadget formal verification (P1 verify + P2 demo)"
+
+[[bin]]
+name = "scribe"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+halva-bridge = { path = "../halva-bridge" }
+proof-pilot = { path = "../proof-pilot" }
