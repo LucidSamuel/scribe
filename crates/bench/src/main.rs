@@ -7,9 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use proof_pilot::backend::{
-    resolve_api_key, AnthropicApi, Backend, ClaudeCli, OpenAiCompatible,
-};
+use proof_pilot::backend::{resolve_api_key, AnthropicApi, Backend, ClaudeCli, OpenAiCompatible};
 use proof_pilot::session::{self, SessionConfig, SessionResult};
 use serde::{Deserialize, Serialize};
 
@@ -165,10 +163,7 @@ fn main() {
             .ok()
     });
 
-    eprintln!(
-        "=== ZKGadgetEval v{} ===",
-        manifest.version
-    );
+    eprintln!("=== ZKGadgetEval v{} ===", manifest.version);
     eprintln!("backend:  {}", backend.name());
     eprintln!("budget:   {budget} iterations");
     eprintln!("gadgets:  {}", manifest.gadgets.len());
@@ -240,10 +235,7 @@ fn main() {
         }
 
         let lean_file_str = lean_path.to_string_lossy().to_string();
-        let transcript_path = format!(
-            "benchmark/results/{}.log",
-            gadget_name(&entry.file)
-        );
+        let transcript_path = format!("benchmark/results/{}.log", gadget_name(&entry.file));
         let _ = fs::create_dir_all("benchmark/results");
 
         let config = SessionConfig {
@@ -472,7 +464,9 @@ fn print_usage() {
     eprintln!("  --suite <path>            Suite manifest (default: benchmark/suite.toml)");
     eprintln!("  --lake-dir <dir>          Lake project directory (default: lean)");
     eprintln!("  --budget <n>              Max iterations per gadget (default: 10)");
-    eprintln!("  --backend <name>          claude | anthropic | openai | leanstral-local | openai-compat");
+    eprintln!(
+        "  --backend <name>          claude | anthropic | openai | leanstral-local | openai-compat"
+    );
     eprintln!("  --model <model>           Model name");
     eprintln!("  --api-key <key>           API key");
     eprintln!("  --base-url <url>          API base URL");

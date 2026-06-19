@@ -27,9 +27,13 @@ fn main() {
         eprintln!("      claude               Claude CLI (shells out to `claude -p`)");
         eprintln!("      anthropic            Anthropic Messages API (ANTHROPIC_API_KEY)");
         eprintln!("      openai               OpenAI Chat Completions (OPENAI_API_KEY)");
-        eprintln!("      leanstral            Leanstral hosted API (LEANSTRAL_API_KEY + --base-url)");
+        eprintln!(
+            "      leanstral            Leanstral hosted API (LEANSTRAL_API_KEY + --base-url)"
+        );
         eprintln!("      leanstral-local      Leanstral self-hosted (localhost, no auth)");
-        eprintln!("      openai-compat        Generic OpenAI-compatible (--base-url, optional auth)");
+        eprintln!(
+            "      openai-compat        Generic OpenAI-compatible (--base-url, optional auth)"
+        );
         eprintln!("  --api-key <key>               API key (or set env var per backend)");
         eprintln!("  --base-url <url>              API base URL (override default endpoint)");
         std::process::exit(1);
@@ -123,12 +127,15 @@ fn main() {
     // ── Replay mode (no LLM) ─────────────────────────────────────────────────
     if let Some(ref rpath) = replay_path {
         eprintln!("[proof-pilot] replay mode: {}", rpath);
-        match replay::replay(rpath, &lean_file, &lake_dir, verify, allow_toolchain_mismatch) {
+        match replay::replay(
+            rpath,
+            &lean_file,
+            &lake_dir,
+            verify,
+            allow_toolchain_mismatch,
+        ) {
             Ok(result) => {
-                eprintln!(
-                    "[replay] applied {} step(s)",
-                    result.steps_applied
-                );
+                eprintln!("[replay] applied {} step(s)", result.steps_applied);
                 if verify {
                     for step in &result.steps {
                         let status = match step.build_passed {

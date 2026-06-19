@@ -40,11 +40,7 @@ pub struct Transcript {
 /// Serialize `journal` to versioned JSON and write it to `path`.
 ///
 /// `mathlib_rev` should come from `read_mathlib_rev(lake_dir)`.
-pub fn save(
-    journal: &SessionJournal,
-    path: &str,
-    mathlib_rev: Option<String>,
-) -> io::Result<()> {
+pub fn save(journal: &SessionJournal, path: &str, mathlib_rev: Option<String>) -> io::Result<()> {
     let transcript = Transcript {
         version: TRANSCRIPT_VERSION,
         toolchain: journal.toolchain.clone(),
@@ -191,8 +187,7 @@ mod tests {
         save(&journal, &tmp, None).expect("save failed");
 
         let content = std::fs::read_to_string(&tmp).expect("read failed");
-        let value: serde_json::Value =
-            serde_json::from_str(&content).expect("not valid JSON");
+        let value: serde_json::Value = serde_json::from_str(&content).expect("not valid JSON");
 
         assert_eq!(value["version"].as_u64(), Some(1));
         assert!(value["journal"].is_object());

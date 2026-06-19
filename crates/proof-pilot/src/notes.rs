@@ -160,7 +160,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 Instead, try `linear_combination <expr>` to derive equalities by arithmetic, \
                 or `field_simp` followed by `ring` for purely algebraic goals. \
                 See `lean/ZkGadgets/RangeCheck.lean` for a worked example that uses \
-                `linear_combination` to close ZMod goals.".to_string();
+                `linear_combination` to close ZMod goals."
+            .to_string();
     }
 
     if combined.contains("mul_eq_zero") || combined.contains("IsUnit") {
@@ -169,7 +170,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 `h : a * b = 0` gives you `a = 0 ∨ b = 0`. \
                 You need `haveI : Fact (Nat.Prime p) := ⟨p_prime_proof⟩` in scope, \
                 which unlocks `NoZeroDivisors`. \
-                See `lean/ZkGadgets/HalvaRangeCheck.lean` for the full pattern.".to_string();
+                See `lean/ZkGadgets/HalvaRangeCheck.lean` for the full pattern."
+            .to_string();
     }
 
     if combined.contains("ZMod") && combined.contains("unsolved goals") {
@@ -180,10 +182,13 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 - `linear_combination <expr>` when the goal is a linear identity.\n\
                 - `norm_num` for concrete numeric equalities.\n\
                 See `lean/ZkGadgets/RangeCheck.lean` (the `hcast` block) for an example \
-                of coercing natural-number bits into `ZMod p`.".to_string();
+                of coercing natural-number bits into `ZMod p`."
+            .to_string();
     }
 
-    if combined.contains("unsolved goals") && (combined.contains("Fin") || combined.contains("Finset")) {
+    if combined.contains("unsolved goals")
+        && (combined.contains("Fin") || combined.contains("Finset"))
+    {
         return "**Unsolved goals involving `Fin` or `Finset`.** \
                 Try `Finset.sum_le_sum` for bounding sums, `Fin.sum_univ_succ` to unroll \
                 finite sums by induction, and `omega` for the resulting arithmetic on `ℕ`. \
@@ -197,7 +202,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 Common fixes: `Nat.lt_of_le_of_lt` (not `lt_of_le_of_lt`), \
                 `Finset.sum_le_sum` (not `Finset.sum_bound`). \
                 Run `#check <name>` interactively or search Mathlib4 docs at \
-                https://leanprover-community.github.io/mathlib4_docs/.".to_string();
+                https://leanprover-community.github.io/mathlib4_docs/."
+            .to_string();
     }
 
     if combined.contains("type mismatch") {
@@ -205,7 +211,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 Common causes: forgetting `push_cast` before `ring`, \
                 mixing `ℕ` and `ZMod p`, or a `Fin n` where `ℕ` is expected (`Fin.val` to unwrap). \
                 Use `#check` and `#print` to inspect expected vs. actual types. \
-                `norm_cast` or `push_cast` often closes the gap automatically.".to_string();
+                `norm_cast` or `push_cast` often closes the gap automatically."
+            .to_string();
     }
 
     if combined.contains("unsolved goals") {
@@ -215,7 +222,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 For ring-equalities in a field, `ring` or `field_simp; ring` frequently works. \
                 For boolean facts (bit = 0 ∨ bit = 1), use `rcases` to split on cases \
                 and close each branch with `simp [h]`. \
-                See `lean/ZkGadgets/RangeCheck.lean` for worked patterns.".to_string();
+                See `lean/ZkGadgets/RangeCheck.lean` for worked patterns."
+            .to_string();
     }
 
     if combined.contains("failed to synthesize") || combined.contains("instance") {
@@ -223,7 +231,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
                 Most commonly this means `Fact (Nat.Prime p)` is missing. \
                 Add `haveI : Fact (Nat.Prime p) := ⟨p_prime_proof⟩` at the top of the proof, \
                 or ensure the `variable` block in the file includes `[Fact (Nat.Prime p)]`. \
-                This also unlocks `Field (ZMod p)` and `NoZeroDivisors (ZMod p)`.".to_string();
+                This also unlocks `Field (ZMod p)` and `NoZeroDivisors (ZMod p)`."
+            .to_string();
     }
 
     // Generic fallback
@@ -234,7 +243,8 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
      - When stuck, add `have h : <intermediate claim> := by <proof>` to build up evidence.\n\
      - The proven gadgets in `lean/ZkGadgets/` are your reference library — \
        `RangeCheck.lean`, `ConditionalSelect.lean`, `PoseidonSbox.lean`, \
-       `NonzeroCheck.lean`, `EdwardsAddition.lean`.".to_string()
+       `NonzeroCheck.lean`, `EdwardsAddition.lean`."
+        .to_string()
 }
 
 // ─── Tactic suggestions ───────────────────────────────────────────────────────
@@ -262,7 +272,8 @@ fn pick_tactic_suggestions(build_errors: &str, goal_states: &[&str]) -> String {
         items.push("Use `Finset.sum_le_sum` to bound a sum by bounding each term individually.");
     }
 
-    if combined.contains("push_cast") || combined.contains("cast") || combined.contains("Nat.cast") {
+    if combined.contains("push_cast") || combined.contains("cast") || combined.contains("Nat.cast")
+    {
         items.push("Add `push_cast` before `ring` to coerce `ℕ` literals into the goal's type.");
     }
 
@@ -431,11 +442,20 @@ mod tests {
         // Must have the main sections
         assert!(notes.contains("# Proof Pilot"), "missing title");
         assert!(notes.contains("## Current State"), "missing current state");
-        assert!(notes.contains("## Recent Attempts"), "missing recent attempts");
-        assert!(notes.contains("## Suggested Next Steps"), "missing next steps");
+        assert!(
+            notes.contains("## Recent Attempts"),
+            "missing recent attempts"
+        );
+        assert!(
+            notes.contains("## Suggested Next Steps"),
+            "missing next steps"
+        );
 
         // Must mention the lean file
-        assert!(notes.contains("lean/ZkGadgets/Test.lean"), "missing file path");
+        assert!(
+            notes.contains("lean/ZkGadgets/Test.lean"),
+            "missing file path"
+        );
 
         // Must contain the outcome
         assert!(notes.contains("EXHAUSTED"), "missing outcome");
