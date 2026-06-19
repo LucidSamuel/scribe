@@ -24,10 +24,20 @@ const FALLBACK_SYSTEM_PROMPT: &str = "prompts/lean-prover.md";
 /// 2. `$SCRIBE_PROMPTS_DIR/lean-prover.md` environment variable.
 /// 3. `prompts/lean-prover.md` relative to CWD.
 fn resolve_system_prompt(explicit: Option<&str>) -> Option<String> {
+    resolve_system_prompt_from(explicit, std::env::var("SCRIBE_PROMPTS_DIR").ok())
+}
+
+/// Pure resolution split out of `resolve_system_prompt` so it can be unit
+/// tested without mutating the process environment (which races under the
+/// parallel test runner).
+fn resolve_system_prompt_from(
+    explicit: Option<&str>,
+    prompts_dir: Option<String>,
+) -> Option<String> {
     if let Some(path) = explicit {
         return Some(path.to_string());
     }
-    if let Ok(dir) = std::env::var("SCRIBE_PROMPTS_DIR") {
+    if let Some(dir) = prompts_dir {
         let path = format!("{dir}/lean-prover.md");
         if Path::new(&path).exists() {
             return Some(path);
@@ -36,22 +46,25 @@ fn resolve_system_prompt(explicit: Option<&str>) -> Option<String> {
     Some(FALLBACK_SYSTEM_PROMPT.to_string())
 }
 
-/// Resolve the lake dir:
-/// 1. Explicit `--lake-dir <dir>` flag.
-/// 2. `$LAKE_DIR` environment variable.
-/// 3. `lean` (default).
+/// Resolve the lake dir: explicit `--lake-dir` → `$LAKE_DIR` → `lean`.
 fn resolve_lake_dir(explicit: Option<&str>) -> String {
-    if let Some(d) = explicit {
-        return d.to_string();
-    }
-    std::env::var("LAKE_DIR").unwrap_or_else(|_| "lean".to_string())
+    resolve_dir(explicit, std::env::var("LAKE_DIR").ok(), "lean")
 }
 
 /// Resolve the bundled examples dir (for `demo --live` assets):
-/// 1. `$SCRIBE_EXAMPLES_DIR` (set in the Docker image to /opt/scribe/examples).
-/// 2. `examples` relative to CWD (the repo root).
+/// `$SCRIBE_EXAMPLES_DIR` (set to /opt/scribe/examples in the Docker image)
+/// → `examples` relative to CWD (the repo root).
 fn resolve_examples_dir() -> String {
-    std::env::var("SCRIBE_EXAMPLES_DIR").unwrap_or_else(|_| "examples".to_string())
+    resolve_dir(None, std::env::var("SCRIBE_EXAMPLES_DIR").ok(), "examples")
+}
+
+/// Pure precedence resolver: explicit flag → environment value → default.
+/// Kept free of global state so unit tests need not mutate the process env.
+fn resolve_dir(explicit: Option<&str>, env: Option<String>, default: &str) -> String {
+    explicit
+        .map(str::to_string)
+        .or(env)
+        .unwrap_or_else(|| default.to_string())
 }
 
 // ── scribe verify ────────────────────────────────────────────────────────────
@@ -137,7 +150,12 @@ pub fn run_verify(args: VerifyArgs) {
         })
     });
 
-    let backend = make_backend(&args.backend, args.model.clone(), args.api_key.clone(), args.base_url.clone());
+    let backend = make_backend(
+        &args.backend,
+        args.model.clone(),
+        args.api_key.clone(),
+        args.base_url.clone(),
+    );
     eprintln!("[scribe] backend: {}", backend.name());
 
     let config = SessionConfig {
@@ -452,42 +470,44 @@ mod tests {
         assert!(DEMO_KERNEL_SNIPPET.contains("kernel"));
     }
 
+    // These exercise the pure resolvers directly, so they never touch the
+    // process environment and cannot race under the parallel test runner.
+
     #[test]
-    fn resolve_lake_dir_uses_explicit_first() {
-        let result = resolve_lake_dir(Some("custom-lean"));
-        assert_eq!(result, "custom-lean");
+    fn resolve_dir_uses_explicit_first() {
+        // Explicit flag wins even when an env value is present.
+        assert_eq!(
+            resolve_dir(Some("custom-lean"), Some("env-lean".to_string()), "lean"),
+            "custom-lean"
+        );
     }
 
     #[test]
-    fn resolve_lake_dir_falls_back_to_default() {
-        // Temporarily ensure LAKE_DIR is not set.
-        let was_set = std::env::var("LAKE_DIR").ok();
-        std::env::remove_var("LAKE_DIR");
-        let result = resolve_lake_dir(None);
-        assert_eq!(result, "lean");
-        if let Some(v) = was_set {
-            std::env::set_var("LAKE_DIR", v);
-        }
+    fn resolve_dir_falls_back_to_default() {
+        assert_eq!(resolve_dir(None, None, "lean"), "lean");
     }
 
     #[test]
-    fn resolve_lake_dir_uses_env_var() {
-        std::env::set_var("LAKE_DIR", "my-lean-dir");
-        let result = resolve_lake_dir(None);
-        assert_eq!(result, "my-lean-dir");
-        std::env::remove_var("LAKE_DIR");
+    fn resolve_dir_uses_env_when_no_flag() {
+        assert_eq!(
+            resolve_dir(None, Some("my-lean-dir".to_string()), "lean"),
+            "my-lean-dir"
+        );
     }
 
     #[test]
     fn resolve_system_prompt_uses_explicit_first() {
-        let result = resolve_system_prompt(Some("/custom/prompt.md"));
-        assert_eq!(result.as_deref(), Some("/custom/prompt.md"));
+        assert_eq!(
+            resolve_system_prompt_from(Some("/custom/prompt.md"), None).as_deref(),
+            Some("/custom/prompt.md")
+        );
     }
 
     #[test]
     fn resolve_system_prompt_falls_back_to_default() {
-        std::env::remove_var("SCRIBE_PROMPTS_DIR");
-        let result = resolve_system_prompt(None);
-        assert_eq!(result.as_deref(), Some(FALLBACK_SYSTEM_PROMPT));
+        assert_eq!(
+            resolve_system_prompt_from(None, None).as_deref(),
+            Some(FALLBACK_SYSTEM_PROMPT)
+        );
     }
 }

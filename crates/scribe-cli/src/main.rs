@@ -21,11 +21,12 @@ struct Cli {
 // difference is expected for a CLI dispatch enum that is constructed once.
 #[allow(clippy::large_enum_variant)]
 enum Commands {
-    /// Verify a ZK gadget: extract → scaffold → (optionally) prove.
+    /// Verify a ZK gadget: extract → scaffold → prove.
     ///
     /// Takes a Halva extractor project or pre-extracted Halva output, merges your
-    /// specification, and (with --prove) runs the LLM proof loop until the Lean
-    /// kernel accepts the proof or the budget is exhausted.
+    /// specification, and runs the LLM proof loop until the Lean kernel accepts
+    /// the proof or the budget is exhausted. Pass `--no-prove` to stop after
+    /// writing the scaffold and skip the proof loop.
     Verify(verify_cmd::VerifyArgs),
 
     /// Run the range-check demonstration pipeline (no Lean or API key required
@@ -274,7 +275,10 @@ mod tests {
             "--spec-file",
             "foo.lean",
         ]);
-        assert!(result.is_err(), "clap should reject --spec with --spec-file");
+        assert!(
+            result.is_err(),
+            "clap should reject --spec with --spec-file"
+        );
     }
 
     #[test]
@@ -371,8 +375,7 @@ mod tests {
 
     #[test]
     fn demo_verify_flag_set() {
-        let cli =
-            Cli::try_parse_from(["scribe", "demo", "--verify"]).expect("should parse");
+        let cli = Cli::try_parse_from(["scribe", "demo", "--verify"]).expect("should parse");
         if let Commands::Demo(args) = cli.command {
             assert!(args.verify);
             assert!(!args.live);
@@ -383,8 +386,7 @@ mod tests {
 
     #[test]
     fn demo_live_flag_set() {
-        let cli =
-            Cli::try_parse_from(["scribe", "demo", "--live"]).expect("should parse");
+        let cli = Cli::try_parse_from(["scribe", "demo", "--live"]).expect("should parse");
         if let Commands::Demo(args) = cli.command {
             assert!(args.live);
             assert!(!args.verify);
