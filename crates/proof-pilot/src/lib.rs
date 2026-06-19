@@ -1,5 +1,9 @@
 pub mod backend;
+pub mod journal;
 pub mod lean_runner;
 pub mod lsp_feedback;
+pub mod notes;
 pub mod patcher;
+pub mod replay;
 pub mod session;
+pub mod transcript;

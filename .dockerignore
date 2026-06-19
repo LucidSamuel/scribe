@@ -1,0 +1,44 @@
+# ── Rust build artifacts ──────────────────────────────────────────────────
+target/
+**/*.rs.bk
+**/.cargo/
+
+# ── Lean build artifacts ──────────────────────────────────────────────────
+lean/.lake/
+lean/**.olean
+lean/**.ilean
+lean/**.trace
+
+# ── Git ───────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.githooks/
+
+# ── CI / editor ───────────────────────────────────────────────────────────
+.github/
+.vscode/
+.idea/
+
+# ── Docs / transcripts (not needed in image) ─────────────────────────────
+docs/
+transcripts/
+roadmap-v2.md
+*.md
+
+# ── Dev / test artifacts ──────────────────────────────────────────────────
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Secrets / environment ─────────────────────────────────────────────────
+.env
+.env.*
+secrets/
+
+# ── Keep bundled assets needed in the image (override the broad ignores above) ──
+# The runtime image bundles the system prompt; without these negations the
+# `*.md` rule above could strip prompts/lean-prover.md from the build context.
+!prompts/
+!prompts/**

@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "Bridge from Halva halo2-to-Lean extraction to scribe's proof-pilot"
 
+[lib]
+name = "halva_bridge"
+path = "src/lib.rs"
+
 [[bin]]
 name = "halva-bridge"
 path = "src/main.rs"

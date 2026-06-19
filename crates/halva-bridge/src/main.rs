@@ -2,7 +2,7 @@ use std::fs;
 use std::process;
 
 use halva_bridge::{parse_halva_output, scaffold_raw, scaffold_soundness, SpecConfig};
-use proof_pilot::backend::{resolve_api_key, AnthropicApi, Backend, ClaudeCli, OpenAiCompatible};
+use proof_pilot::backend::make_backend;
 use proof_pilot::session::{self, SessionConfig, SessionResult};
 
 const DEFAULT_SYSTEM_PROMPT: &str = "prompts/lean-prover.md";
@@ -171,7 +171,7 @@ fn main() {
         })
     });
 
-    let backend: Box<dyn Backend> = make_backend(&backend_name, model, api_key, base_url);
+    let backend = make_backend(&backend_name, model, api_key, base_url);
 
     let config = SessionConfig {
         lean_file: out_path.clone(),
@@ -182,7 +182,8 @@ fn main() {
         use_lsp,
     };
 
-    match session::run(&config, backend.as_ref()) {
+    let (result, _journal) = session::run(&config, backend.as_ref());
+    match result {
         SessionResult::Proven { iterations } => {
             if iterations == 0 {
                 eprintln!("[halva-bridge] already proven");
@@ -205,84 +206,10 @@ fn main() {
     }
 }
 
-fn make_backend(
-    name: &str,
-    model: Option<String>,
-    api_key: Option<String>,
-    base_url: Option<String>,
-) -> Box<dyn Backend> {
-    match name {
-        "claude" | "claude-cli" => {
-            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
-            Box::new(ClaudeCli::new(m))
-        }
-        "anthropic" => {
-            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
-            let key = require_api_key(api_key.as_deref(), "ANTHROPIC_API_KEY", "anthropic");
-            let mut b = AnthropicApi::new(m, key);
-            if let Some(url) = base_url {
-                b = b.with_base_url(url);
-            }
-            Box::new(b)
-        }
-        "openai" => {
-            let m = model.unwrap_or_else(|| "gpt-4o".into());
-            let key = require_api_key(api_key.as_deref(), "OPENAI_API_KEY", "openai");
-            let url = base_url.unwrap_or_else(|| "https://api.openai.com/v1".into());
-            Box::new(
-                OpenAiCompatible::new(m, Some(key), url)
-                    .with_completion_tokens()
-                    .with_name("openai".into()),
-            )
-        }
-        "leanstral" => {
-            let m = model.unwrap_or_else(|| "leanstral-v1".into());
-            let key = require_api_key(api_key.as_deref(), "LEANSTRAL_API_KEY", "leanstral");
-            let url = base_url.unwrap_or_else(|| {
-                eprintln!(
-                    "leanstral backend requires --base-url (e.g. https://api.leanstral.ai/v1)"
-                );
-                process::exit(1);
-            });
-            Box::new(OpenAiCompatible::new(m, Some(key), url).with_name("leanstral".into()))
-        }
-        "leanstral-local" => {
-            let m = model.unwrap_or_else(|| "leanstral-v1".into());
-            let url = base_url.unwrap_or_else(|| "http://localhost:8000/v1".into());
-            Box::new(OpenAiCompatible::new(m, api_key, url).with_name("leanstral-local".into()))
-        }
-        "openai-compat" => {
-            let m = model.unwrap_or_else(|| {
-                eprintln!("openai-compat backend requires --model");
-                process::exit(1);
-            });
-            let url = base_url.unwrap_or_else(|| {
-                eprintln!("openai-compat backend requires --base-url");
-                process::exit(1);
-            });
-            Box::new(OpenAiCompatible::new(m, api_key, url).with_name("openai-compat".into()))
-        }
-        other => {
-            eprintln!("unknown backend: {other}");
-            eprintln!(
-                "available: claude, anthropic, openai, leanstral, leanstral-local, openai-compat"
-            );
-            process::exit(1);
-        }
-    }
-}
-
 fn flag_value(args: &[String], i: &mut usize, flag: &str) -> String {
     *i += 1;
     args.get(*i).cloned().unwrap_or_else(|| {
         eprintln!("missing value for {flag}");
-        process::exit(1);
-    })
-}
-
-fn require_api_key(explicit: Option<&str>, env_var: &str, backend: &str) -> String {
-    resolve_api_key(explicit, env_var).unwrap_or_else(|| {
-        eprintln!("{backend} backend requires --api-key or {env_var} env var");
         process::exit(1);
     })
 }
