@@ -13,7 +13,7 @@
 # org.opencontainers.image.description  LLM proof-completion loop for ZK gadgets
 
 ARG UBUNTU_VERSION=24.04
-ARG RUST_VERSION=1.82
+ARG RUST_VERSION=1.90
 
 # ── stage 1: rust-builder ─────────────────────────────────────────────────
 FROM ubuntu:${UBUNTU_VERSION} AS rust-builder

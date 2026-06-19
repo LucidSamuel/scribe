@@ -66,4 +66,4 @@ jobs:
           target: runtime
           build-args: |
             UBUNTU_VERSION=24.04
-            RUST_VERSION=1.82
+            RUST_VERSION=1.90
