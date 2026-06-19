@@ -47,6 +47,13 @@ fn resolve_lake_dir(explicit: Option<&str>) -> String {
     std::env::var("LAKE_DIR").unwrap_or_else(|_| "lean".to_string())
 }
 
+/// Resolve the bundled examples dir (for `demo --live` assets):
+/// 1. `$SCRIBE_EXAMPLES_DIR` (set in the Docker image to /opt/scribe/examples).
+/// 2. `examples` relative to CWD (the repo root).
+fn resolve_examples_dir() -> String {
+    std::env::var("SCRIBE_EXAMPLES_DIR").unwrap_or_else(|_| "examples".to_string())
+}
+
 // ── scribe verify ────────────────────────────────────────────────────────────
 
 pub fn run_verify(args: VerifyArgs) {
@@ -110,12 +117,15 @@ pub fn run_verify(args: VerifyArgs) {
     });
     eprintln!("[scribe] wrote {out_path}");
 
-    if !args.prove {
+    // Scaffold-only mode: write the Lean file (still containing `sorry`) and stop.
+    if args.no_prove {
+        eprintln!("[scribe] --no-prove: scaffold written, skipping the proof loop");
         println!("{out_path}");
         return;
     }
 
-    // 6. Optionally run the proof loop.
+    // 6. Run the proof loop (default). `scribe verify` only exits 0 once the
+    //    Lean kernel accepts the proof; pass --no-prove for scaffold-only.
     eprintln!("[scribe] launching proof-pilot...");
 
     let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
@@ -318,13 +328,16 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
     eprintln!("[scribe demo --live] building fresh scaffold from bundled assets...");
 
     // Use the halva-range-check extracted.lean as the demo Halva output.
-    let halva_content_path = "examples/halva-range-check/extracted.lean";
-    let spec_file_path = "examples/halva-range-check/spec.lean";
+    // Resolve via $SCRIBE_EXAMPLES_DIR so this works from the installed image
+    // (WORKDIR /workspace) as well as from the repo root.
+    let examples_dir = resolve_examples_dir();
+    let halva_content_path = format!("{examples_dir}/halva-range-check/extracted.lean");
+    let spec_file_path = format!("{examples_dir}/halva-range-check/spec.lean");
 
-    let halva_content = fs::read_to_string(halva_content_path).unwrap_or_else(|e| {
+    let halva_content = fs::read_to_string(&halva_content_path).unwrap_or_else(|e| {
         eprintln!(
             "error: cannot read bundled demo asset {halva_content_path}: {e}\n\
-             Make sure you are running from the scribe repo root."
+             Set $SCRIBE_EXAMPLES_DIR or run from the scribe repo root."
         );
         process::exit(1);
     });
@@ -334,10 +347,10 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
         process::exit(1);
     });
 
-    let snippet = fs::read_to_string(spec_file_path).unwrap_or_else(|e| {
+    let snippet = fs::read_to_string(&spec_file_path).unwrap_or_else(|e| {
         eprintln!(
             "error: cannot read bundled spec {spec_file_path}: {e}\n\
-             Make sure you are running from the scribe repo root."
+             Set $SCRIBE_EXAMPLES_DIR or run from the scribe repo root."
         );
         process::exit(1);
     });

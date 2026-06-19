@@ -36,3 +36,9 @@ Thumbs.db
 .env
 .env.*
 secrets/
+
+# ── Keep bundled assets needed in the image (override the broad ignores above) ──
+# The runtime image bundles the system prompt; without these negations the
+# `*.md` rule above could strip prompts/lean-prover.md from the build context.
+!prompts/
+!prompts/**

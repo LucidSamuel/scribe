@@ -131,7 +131,7 @@ scribe verify \
   --output    lean/ZkGadgets/MyCircuit.lean
 ```
 
-both forms run proof-pilot and exit 0 only when the Lean kernel accepts the proof. the output `.lean` file is the artifact; no `sorry` or `axiom` survive.
+both forms run proof-pilot by default and exit 0 only when the Lean kernel accepts the proof. the output `.lean` file is the artifact; no `sorry` or `axiom` survive. pass `--no-prove` to only emit the scaffold (which still contains `sorry`) and skip the proof loop.
 
 ## scribe demo
 
@@ -139,18 +139,18 @@ both forms run proof-pilot and exit 0 only when the Lean kernel accepts the proo
 
 | flag | what it does |
 |---|---|
-| _(none)_ | dry-run: prints what scribe would do, shows the gadget description and theorem statement, exits 0 without calling an LLM |
-| `--verify` | runs the full proof loop against `examples/halva-range-check/` (requires `ANTHROPIC_API_KEY` or `--backend`); this tier runs in CI |
-| `--live` | same as `--verify` but streams LLM output in real time |
+| _(none)_ | dry-run: walks through the pipeline conceptually and shows the gadget description — no Lean toolchain or API key required |
+| `--verify` | runs `lake build` on the pre-computed `lean/ZkGadgets/RangeCheck.lean` proof (needs Lean; **no** API key); this tier runs in CI |
+| `--live` | runs the full LLM proof loop on a fresh scaffold (needs Lean **and** an API key / backend) |
 
 ```
-# dry-run (no API key needed)
+# dry-run (no Lean or API key needed)
 scribe demo
 
-# full proof loop
-scribe demo --verify --backend claude
+# kernel-check the pre-computed range-check proof (needs Lean, no API key)
+scribe demo --verify
 
-# streaming live
+# run the live LLM proof loop on a fresh scaffold (needs Lean + API key)
 scribe demo --live --backend claude
 ```
 

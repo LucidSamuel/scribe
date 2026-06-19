@@ -171,7 +171,8 @@ COPY examples/ /opt/scribe/examples/
 ENV PATH="/opt/elan/bin:${PATH}" \
     ELAN_HOME="/opt/elan" \
     LAKE_DIR="/opt/lean-project" \
-    SCRIBE_PROMPTS_DIR="/opt/scribe/prompts"
+    SCRIBE_PROMPTS_DIR="/opt/scribe/prompts" \
+    SCRIBE_EXAMPLES_DIR="/opt/scribe/examples"
 
 # Verify Lean toolchain is accessible (fail fast if elan copy is broken)
 RUN lean --version && lake --version

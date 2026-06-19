@@ -80,10 +80,11 @@ mod verify_cmd {
         #[arg(short = 'o', long, value_name = "FILE")]
         pub output: Option<String>,
 
-        /// After scaffolding, run the LLM proof loop until the Lean kernel
-        /// accepts the proof or the iteration budget is exhausted.
+        /// Scaffold only: write the Lean file and stop, skipping the proof loop.
+        /// By default `scribe verify` runs proof-pilot until the Lean kernel
+        /// accepts the proof (or the iteration budget is exhausted).
         #[arg(long)]
-        pub prove: bool,
+        pub no_prove: bool,
 
         /// Lake project directory (default: $LAKE_DIR env var, else `lean`).
         #[arg(long, value_name = "DIR")]
@@ -302,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn verify_prove_flag_default_false() {
+    fn verify_proves_by_default() {
         let cli = Cli::try_parse_from([
             "scribe",
             "verify",
@@ -313,14 +314,15 @@ mod tests {
         ])
         .expect("should parse");
         if let Commands::Verify(args) = cli.command {
-            assert!(!args.prove);
+            // Default contract: the proof loop runs unless --no-prove is given.
+            assert!(!args.no_prove);
         } else {
             panic!("expected Verify");
         }
     }
 
     #[test]
-    fn verify_prove_flag_set() {
+    fn verify_no_prove_flag_set() {
         let cli = Cli::try_parse_from([
             "scribe",
             "verify",
@@ -328,11 +330,11 @@ mod tests {
             "out.lean",
             "--spec",
             "True",
-            "--prove",
+            "--no-prove",
         ])
         .expect("should parse");
         if let Commands::Verify(args) = cli.command {
-            assert!(args.prove);
+            assert!(args.no_prove);
         } else {
             panic!("expected Verify");
         }
