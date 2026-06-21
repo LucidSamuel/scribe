@@ -98,7 +98,9 @@ fn run_with_lsp(
         &mut log,
         &format!(
             "=== proof-pilot session (LSP mode) ===\nfile: {}\nbackend: {}\nmax_iters: {}\n",
-            config.lean_file, backend.name(), config.max_iterations
+            config.lean_file,
+            backend.name(),
+            config.max_iterations
         ),
     );
 
@@ -183,11 +185,10 @@ fn run_with_lsp(
         let prompt = build_lsp_prompt(&config.lean_file, &source_before, &last_feedback, iteration);
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
-        let llm_response =
-            match backend.complete(&prompt, config.system_prompt.as_deref()) {
-                Ok(r) => r,
-                Err(e) => return SessionResult::Failed(format!("backend: {e}")),
-            };
+        let llm_response = match backend.complete(&prompt, config.system_prompt.as_deref()) {
+            Ok(r) => r,
+            Err(e) => return SessionResult::Failed(format!("backend: {e}")),
+        };
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
 
         // Apply patch — use synthetic build output for the patcher's diagnostic targeting
@@ -260,9 +261,7 @@ fn run_with_lsp(
                             last_feedback = FeedbackSource::BuildOutput(r.combined);
                             None
                         }
-                        Err(e) => {
-                            return SessionResult::Failed(format!("lake build verify: {e}"))
-                        }
+                        Err(e) => return SessionResult::Failed(format!("lake build verify: {e}")),
                     }
                 } else {
                     eprintln!("[proof-pilot] build failed (LSP), retrying...");
@@ -366,9 +365,7 @@ impl FeedbackSource {
 
     fn build_output_for_patcher(&self, target_file: &str) -> String {
         match self {
-            FeedbackSource::Lsp { feedback, .. } => {
-                feedback_as_build_output(feedback, target_file)
-            }
+            FeedbackSource::Lsp { feedback, .. } => feedback_as_build_output(feedback, target_file),
             FeedbackSource::BuildOutput(output) => output.clone(),
         }
     }
@@ -499,7 +496,9 @@ fn run_with_lake_build(
         &mut log,
         &format!(
             "=== proof-pilot session ===\nfile: {}\nbackend: {}\nmax_iters: {}\n",
-            config.lean_file, backend.name(), config.max_iterations
+            config.lean_file,
+            backend.name(),
+            config.max_iterations
         ),
     );
 
@@ -540,11 +539,10 @@ fn run_with_lake_build(
 
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
-        let llm_response =
-            match backend.complete(&prompt, config.system_prompt.as_deref()) {
-                Ok(r) => r,
-                Err(e) => return SessionResult::Failed(format!("backend: {e}")),
-            };
+        let llm_response = match backend.complete(&prompt, config.system_prompt.as_deref()) {
+            Ok(r) => r,
+            Err(e) => return SessionResult::Failed(format!("backend: {e}")),
+        };
 
         log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
 

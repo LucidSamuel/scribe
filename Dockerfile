@@ -13,7 +13,7 @@
 # org.opencontainers.image.description  LLM proof-completion loop for ZK gadgets
 
 ARG UBUNTU_VERSION=24.04
-ARG RUST_VERSION=1.82
+ARG RUST_VERSION=1.90
 
 # ── stage 1: rust-builder ─────────────────────────────────────────────────
 FROM ubuntu:${UBUNTU_VERSION} AS rust-builder
@@ -84,7 +84,13 @@ COPY prompts/ prompts/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/target \
-    cargo build --release --workspace \
+    # The dependency pre-warm above compiled stub crates into the target cache.
+    # COPY preserves the host mtime, which can be older than those cached stub
+    # artifacts, so cargo would skip rebuilding the real workspace crates and
+    # link the stale stubs. Bump the source mtimes to force a real rebuild
+    # (registry-cached dependencies are unaffected — they fingerprint by version).
+    find crates -name '*.rs' -exec touch {} + \
+    && cargo build --release --workspace \
     && mkdir -p /out/bin \
     # Copy whichever binaries exist; scribe-cli agent delivers `scribe` binary
     && for bin in proof-pilot halva-bridge scribe; do \
@@ -126,11 +132,13 @@ RUN TOOLCHAIN="$(cat lean-toolchain)" \
     && elan override set "$TOOLCHAIN"
 
 # Pre-cache Mathlib oleans from the mathlib4 olean server.
-# lake exe cache get downloads pre-built .olean files keyed to the lake-manifest rev
-# (mathlib rev 53f8a93a7739dd4eb33926f645811ebb6cee21bf at time of image build).
+# Do not run `lake update` here: the committed lake-manifest.json pins dependency
+# revisions that match lean/lean-toolchain. Updating during the image build can
+# pull newer Mathlib/Batteries code that requires a different Lean compiler.
+# `lake exe cache get` downloads pre-built .olean files keyed to the manifest.
 # This is the heaviest step (~2.5 GB) but makes the runtime image self-contained.
 # hadolint ignore=SC2015
-RUN lake update && lake exe cache get || echo "olean cache unavailable; will build from source"
+RUN lake exe cache get || echo "olean cache unavailable; will build from source"
 
 # Build the ZkGadgets library with the pre-cached oleans
 RUN lake build
@@ -174,8 +182,13 @@ ENV PATH="/opt/elan/bin:${PATH}" \
     SCRIBE_PROMPTS_DIR="/opt/scribe/prompts" \
     SCRIBE_EXAMPLES_DIR="/opt/scribe/examples"
 
-# Verify Lean toolchain is accessible (fail fast if elan copy is broken)
-RUN lean --version && lake --version
+# Configure and verify the runtime Lean toolchain. The builder stage sets an
+# override for /lean, but the runtime image uses /workspace as its default CWD,
+# so it also needs a default elan toolchain.
+RUN TOOLCHAIN="$(cat /opt/lean-project/lean-toolchain)" \
+    && elan default "$TOOLCHAIN" \
+    && lean --version \
+    && lake --version
 
 # Default working directory for user-supplied circuits / proofs
 WORKDIR /workspace

@@ -16,7 +16,10 @@ lean/.lake/
 
 # Claude Code (local config, commands, prompts)
 .claude/
-prompts/
+# Ignore local prompt scratch files, but keep the project's system prompt —
+# proof-pilot / scribe-cli and the Docker image depend on prompts/lean-prover.md.
+prompts/*
+!prompts/lean-prover.md
 NOTES.md
 
 # MCP config (local dev)

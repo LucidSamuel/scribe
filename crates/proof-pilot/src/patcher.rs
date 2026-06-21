@@ -250,10 +250,7 @@ fn strip_theorem_echo(block: &str) -> &str {
         // Check if any line before this `:= by` starts with a top-level keyword
         let has_decl = before.lines().any(|line| {
             let first = line.split_whitespace().next().unwrap_or("");
-            matches!(
-                first,
-                "theorem" | "lemma" | "def" | "example" | "instance"
-            )
+            matches!(first, "theorem" | "lemma" | "def" | "example" | "instance")
         });
         if !has_decl {
             continue;

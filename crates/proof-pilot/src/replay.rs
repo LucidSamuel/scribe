@@ -88,8 +88,8 @@ pub fn replay(
         std::fs::write(lean_path, &record.source_after).map_err(ReplayError::WriteError)?;
 
         if verify {
-            let build = run_lake_build_for_file(lake_path, lean_path)
-                .map_err(ReplayError::BuildError)?;
+            let build =
+                run_lake_build_for_file(lake_path, lean_path).map_err(ReplayError::BuildError)?;
             let passed = build.success;
             if passed {
                 eprintln!("[replay] iteration {} — build PASSED", record.index);
@@ -110,10 +110,7 @@ pub fn replay(
         }
     }
 
-    let final_build_passed = steps
-        .last()
-        .and_then(|s| s.build_passed)
-        .unwrap_or(false);
+    let final_build_passed = steps.last().and_then(|s| s.build_passed).unwrap_or(false);
 
     Ok(ReplayResult {
         steps_applied: steps.len(),
@@ -242,9 +239,9 @@ mod tests {
         let result = replay(
             &transcript_path,
             &lean_file,
-            "lean",           // lake_dir — only used for toolchain check
-            false,            // verify = false
-            true,             // allow_toolchain_mismatch = true
+            "lean", // lake_dir — only used for toolchain check
+            false,  // verify = false
+            true,   // allow_toolchain_mismatch = true
         )
         .expect("replay failed");
 
@@ -325,7 +322,10 @@ mod tests {
             true, // allow_toolchain_mismatch = true
         );
 
-        assert!(result.is_ok(), "should succeed with allow_toolchain_mismatch=true: {result:?}");
+        assert!(
+            result.is_ok(),
+            "should succeed with allow_toolchain_mismatch=true: {result:?}"
+        );
 
         // Clean up
         let _ = std::fs::remove_file(&transcript_path);
@@ -355,8 +355,8 @@ mod tests {
         let lean_file = tmp("StepCount.lean");
         std::fs::write(&lean_file, "-- start\n").expect("write lean file");
 
-        let result = replay(&transcript_path, &lean_file, "lean", false, true)
-            .expect("replay failed");
+        let result =
+            replay(&transcript_path, &lean_file, "lean", false, true).expect("replay failed");
 
         assert_eq!(
             result.steps_applied,
