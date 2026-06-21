@@ -84,7 +84,13 @@ COPY prompts/ prompts/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/target \
-    cargo build --release --workspace \
+    # The dependency pre-warm above compiled stub crates into the target cache.
+    # COPY preserves the host mtime, which can be older than those cached stub
+    # artifacts, so cargo would skip rebuilding the real workspace crates and
+    # link the stale stubs. Bump the source mtimes to force a real rebuild
+    # (registry-cached dependencies are unaffected — they fingerprint by version).
+    find crates -name '*.rs' -exec touch {} + \
+    && cargo build --release --workspace \
     && mkdir -p /out/bin \
     # Copy whichever binaries exist; scribe-cli agent delivers `scribe` binary
     && for bin in proof-pilot halva-bridge scribe; do \
