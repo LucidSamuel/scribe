@@ -62,7 +62,7 @@ requires [elan](https://github.com/leanprover/elan) (lean version manager).
 curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
 
 cd lean
-lake update
+lake exe cache get
 lake build
 ```
 

@@ -132,11 +132,13 @@ RUN TOOLCHAIN="$(cat lean-toolchain)" \
     && elan override set "$TOOLCHAIN"
 
 # Pre-cache Mathlib oleans from the mathlib4 olean server.
-# lake exe cache get downloads pre-built .olean files keyed to the lake-manifest rev
-# (mathlib rev 53f8a93a7739dd4eb33926f645811ebb6cee21bf at time of image build).
+# Do not run `lake update` here: the committed lake-manifest.json pins dependency
+# revisions that match lean/lean-toolchain. Updating during the image build can
+# pull newer Mathlib/Batteries code that requires a different Lean compiler.
+# `lake exe cache get` downloads pre-built .olean files keyed to the manifest.
 # This is the heaviest step (~2.5 GB) but makes the runtime image self-contained.
 # hadolint ignore=SC2015
-RUN lake update && lake exe cache get || echo "olean cache unavailable; will build from source"
+RUN lake exe cache get || echo "olean cache unavailable; will build from source"
 
 # Build the ZkGadgets library with the pre-cached oleans
 RUN lake build
@@ -180,8 +182,13 @@ ENV PATH="/opt/elan/bin:${PATH}" \
     SCRIBE_PROMPTS_DIR="/opt/scribe/prompts" \
     SCRIBE_EXAMPLES_DIR="/opt/scribe/examples"
 
-# Verify Lean toolchain is accessible (fail fast if elan copy is broken)
-RUN lean --version && lake --version
+# Configure and verify the runtime Lean toolchain. The builder stage sets an
+# override for /lean, but the runtime image uses /workspace as its default CWD,
+# so it also needs a default elan toolchain.
+RUN TOOLCHAIN="$(cat /opt/lean-project/lean-toolchain)" \
+    && elan default "$TOOLCHAIN" \
+    && lean --version \
+    && lake --version
 
 # Default working directory for user-supplied circuits / proofs
 WORKDIR /workspace
