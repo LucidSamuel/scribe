@@ -16,8 +16,8 @@ spec for the v2 work. Agents implementing phases must read this first.
 
 1. **Scoping honesty.** "One command" = extractor-project → proof, NOT raw halo2
    circuit → proof. The user still authors the Halva extractor program. Docs MUST
-   say this plainly. (`scribe init --circuit` template generator is deferred to a
-   later round.)
+   say this plainly. `scribe init --circuit` now generates the editable extractor
+   project template, but it does not parse raw halo2 Rust source directly.
 2. **Demo gadget = range-check** (legible to non-hash ZK people), not poseidon-sbox.
    Lead dry-run output with a one-line plain-English description of the gadget.
 3. **Replay toolchain pinning.** Transcript JSON records `toolchain` (contents of

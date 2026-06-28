@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::process;
 
 mod extract;
+mod init;
 mod orchestrate;
 
 /// scribe — formal verification of ZK circuit gadgets using Lean 4.
@@ -40,6 +41,13 @@ enum Commands {
     ///   --live     Run the full LLM proof loop on a fresh scaffold. Requires
     ///              Lean and a configured backend (API key or claude CLI).
     Demo(demo_cmd::DemoArgs),
+
+    /// Generate a Halva extractor project template for a raw halo2 circuit.
+    ///
+    /// The generated project is the editable adapter that `scribe verify
+    /// --circuit` expects: a Cargo project whose `cargo run --release` prints
+    /// Halva Lean output to stdout.
+    Init(init_cmd::InitArgs),
 }
 
 mod verify_cmd {
@@ -188,6 +196,42 @@ mod demo_cmd {
     }
 }
 
+mod init_cmd {
+    use clap::Args;
+
+    #[derive(Args)]
+    pub struct InitArgs {
+        /// Path to the raw halo2 circuit crate or source directory to wrap.
+        #[arg(long, value_name = "DIR")]
+        pub circuit: String,
+
+        /// Output directory for the generated extractor project.
+        /// Defaults to `<circuit-package>-halva-extractor`.
+        #[arg(short = 'o', long, value_name = "DIR")]
+        pub output: Option<String>,
+
+        /// Base name for the generated package and Lean namespace.
+        /// Defaults to the circuit crate package name when Cargo.toml is present.
+        #[arg(long, value_name = "NAME")]
+        pub name: Option<String>,
+
+        /// Overwrite template files when the output directory already exists.
+        #[arg(long)]
+        pub force: bool,
+
+        /// Git URL for the Halva extractor dependency.
+        ///
+        /// If omitted, the generated Cargo.toml contains a TODO placeholder
+        /// instead of a guessed repository URL.
+        #[arg(long, value_name = "URL")]
+        pub halva_git: Option<String>,
+
+        /// Optional Halva git revision to pin in the generated Cargo.toml.
+        #[arg(long, value_name = "REV")]
+        pub halva_rev: Option<String>,
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -201,6 +245,9 @@ fn main() {
         }
         Commands::Demo(args) => {
             orchestrate::run_demo(args);
+        }
+        Commands::Init(args) => {
+            init::run_init(args);
         }
     }
 }
@@ -402,5 +449,36 @@ mod tests {
             result.is_err(),
             "clap should reject --verify and --live together"
         );
+    }
+
+    #[test]
+    fn init_circuit_accepted() {
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "init",
+            "--circuit",
+            "crates/my-circuit",
+            "--output",
+            "my-extractor",
+            "--name",
+            "my-circuit",
+            "--halva-rev",
+            "abc123",
+        ])
+        .expect("should parse");
+        if let Commands::Init(args) = cli.command {
+            assert_eq!(args.circuit, "crates/my-circuit");
+            assert_eq!(args.output.as_deref(), Some("my-extractor"));
+            assert_eq!(args.name.as_deref(), Some("my-circuit"));
+            assert_eq!(args.halva_rev.as_deref(), Some("abc123"));
+        } else {
+            panic!("expected Init");
+        }
+    }
+
+    #[test]
+    fn init_requires_circuit() {
+        let result = Cli::try_parse_from(["scribe", "init"]);
+        assert!(result.is_err(), "clap should require --circuit");
     }
 }
