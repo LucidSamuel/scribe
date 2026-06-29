@@ -101,7 +101,7 @@ pub fn create_project(config: &InitConfig) -> Result<InitReport, InitError> {
         .as_deref()
         .map(slugify_package)
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| circuit_package.clone());
+        .unwrap_or_else(|| slugify_package(&circuit_package));
     let namespace = config
         .name
         .as_deref()
@@ -163,6 +163,9 @@ name = "{project_name}"
 version = "0.1.0"
 edition = "2021"
 publish = false
+
+# Keep this extractor runnable if it is generated inside a parent Cargo workspace.
+[workspace]
 
 [dependencies]
 # TODO: keep this path pointed at the crate that defines your halo2 Circuit.
@@ -284,10 +287,18 @@ fn infer_package_name(circuit: &Path) -> Option<String> {
 
 fn package_name_from_line(line: &str) -> Option<String> {
     let rest = line.strip_prefix("name")?.trim_start();
-    let value = rest.strip_prefix('=')?.trim();
-    Some(slugify_package(
-        value.trim_matches(|ch| ch == '"' || ch == '\''),
-    ))
+    let value = rest.strip_prefix('=')?.trim_start();
+    parse_toml_string_value(value)
+}
+
+fn parse_toml_string_value(value: &str) -> Option<String> {
+    let quote = value.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let remainder = &value[quote.len_utf8()..];
+    let end = remainder.find(quote)?;
+    Some(remainder[..end].to_string())
 }
 
 fn slugify_package(input: &str) -> String {
@@ -373,6 +384,7 @@ version = "0.1.0"
         assert_eq!(report.output, output);
         let manifest = fs::read_to_string(output.join("Cargo.toml")).expect("read Cargo.toml");
         assert!(manifest.contains(r#"name = "poseidon-sbox-halva-extractor""#));
+        assert!(manifest.contains("[workspace]"));
         assert!(manifest.contains(r#"poseidon-sbox = { path = ""#));
         assert!(manifest.contains("TODO: set the Halva halo2-to-Lean extractor dependency"));
         let main_rs = fs::read_to_string(output.join("src/main.rs")).expect("read main.rs");
@@ -407,6 +419,34 @@ name = "good-circuit"
         let manifest = fs::read_to_string(output.join("Cargo.toml")).expect("read Cargo.toml");
         assert!(manifest.contains(r#"name = "good-circuit-halva-extractor""#));
         assert!(manifest.contains(r#"good-circuit = { path = ""#));
+    }
+
+    #[test]
+    fn generated_project_preserves_underscore_package_dependency() {
+        let root = temp_dir("underscore_package");
+        let circuit = root.join("raw");
+        fs::create_dir_all(&circuit).expect("create circuit dir");
+        fs::write(
+            circuit.join("Cargo.toml"),
+            r#"[package]
+name = "my_circuit"
+version = "0.1.0"
+"#,
+        )
+        .expect("write manifest");
+
+        let output = root.join("extractor");
+        create_project(&InitConfig {
+            circuit,
+            output: Some(output.clone()),
+            ..InitConfig::default()
+        })
+        .expect("generate project");
+
+        let manifest = fs::read_to_string(output.join("Cargo.toml")).expect("read Cargo.toml");
+        assert!(manifest.contains(r#"name = "my-circuit-halva-extractor""#));
+        assert!(manifest.contains(r#"my_circuit = { path = ""#));
+        assert!(!manifest.contains(r#"my-circuit = { path = ""#));
     }
 
     #[test]
