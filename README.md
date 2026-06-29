@@ -106,6 +106,8 @@ cargo run -p halva-bridge -- examples/halva-range-check/extracted.lean \
 
 Use `--prove` to launch proof-pilot after scaffolding. Structured specifications can use `--spec <expr>` with repeatable `--extra-import <module>` flags. Run `halva-bridge --help` for the backend and proof-loop options.
 
+The same flow scales to harder circuits. `examples/halva-fibonacci/` and `examples/halva-binary-number/` are real Halva extractions (`cargo run --example fib` / `--example scroll-binary-number` from the Halva repo) bridged to proven soundness theorems — exercising copy constraints and multi-gate circuits respectively, neither of which the range-check example touches.
+
 ## scribe verify
 
 `scribe verify` is the single-command path from a Halva extractor project to a kernel-checked proof.
@@ -216,6 +218,8 @@ tags: `latest` (main branch), `sha-<commit>` (per-commit), `v<semver>` (releases
 | non-zero check | 1 (inverse) | `x ≠ 0` |
 | edwards addition | 2 (baby jubjub add) | output point on curve |
 | Halva polynomial range check | 1 (10-factor polynomial) | selected value is in `Fin 10` |
+| Halva Fibonacci | 1 add gate + 17 copy constraints | output instance cell `= 21·f(0) + 34·f(1)` |
+| Halva binary number | 4 (2 boolean + recomposition + range) | enabled rows hold bits `b₀,b₁` with value `= 2·b₀ + b₁`, never both set |
 
 ## git hooks
 
@@ -243,6 +247,8 @@ lean/
     NonzeroCheck.lean       field nonzero check soundness (proven)
     EdwardsAddition.lean    baby jubjub addition closure (proven)
     HalvaRangeCheck.lean     Halva range-check extraction soundness (proven)
+    HalvaFibonacci.lean      Halva Fibonacci extraction soundness — copy constraints (proven)
+    HalvaBinaryNumber.lean   Halva binary-number extraction soundness — 4 gates (proven)
 examples/
   range-check/           8-bit range check (9 witnesses, 9 constraints)
   conditional-select/    conditional select (4 witnesses, 2 constraints)
@@ -250,6 +256,8 @@ examples/
   nonzero-check/         field inverse (2 witnesses, 1 constraint)
   edwards-addition/      baby jubjub point addition (6 witnesses, 2 constraints)
   halva-range-check/     real Halva extraction + user specification
+  halva-fibonacci/       real Halva extraction (add gate + copy constraints) + spec
+  halva-binary-number/   real Halva extraction (4 gates, fixed-column enable) + spec
 transcripts/
   poseidon-sbox.md   example proof-pilot session (autonomous closure in 2 iterations)
 docs/

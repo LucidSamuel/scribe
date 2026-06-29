@@ -67,3 +67,28 @@ Everything depends on these shared types compiling green.
 - B: proof-pilot/{notes.rs, transcript.rs, replay.rs, lib.rs (+mods), main.rs (+flags)}.
 - C: scribe-cli/* (new), root Cargo.toml ([workspace] members).
 - D: Dockerfile, .github/workflows/docker.yml, README.md.
+
+## Post-v2: bridge breadth (2026-06-28)
+
+Validation that the Halva bridge handles more than range-check. Two new real
+extractions (`cargo run --example <name>` from the Halva repo) bridged to proven
+soundness theorems, raising proven Halva circuits from 1 → 3:
+
+- **Fibonacci** (`examples/halva-fibonacci/`, `lean/ZkGadgets/HalvaFibonacci.lean`)
+  — add gate + 17 copy constraints across 8 rows; dotted namespace `Fibonacci.Ex1`.
+  Soundness: output instance cell `= 21·f(0) + 34·f(1)`. First proof exercising the
+  copy-constraint chain (range-check's `all_copy_constraints` is `true`). Pure
+  `linear_combination` over the ring — no field needed. Axioms: propext, Quot.sound.
+- **Binary number** (`examples/halva-binary-number/`, `lean/ZkGadgets/HalvaBinaryNumber.lean`)
+  — 4 gates gated by a *fixed* enable column (2 boolean-bit, recomposition
+  `value = 2·b₀ + b₁`, range exclusion `b₀·b₁ = 0`). Needs `Fact (Nat.Prime P)` for
+  `mul_eq_zero` boolean splits, like range-check.
+
+Both proofs are hand-written and kernel-checked (`lake build` green, no
+sorry/axiom, `#print axioms` shows only standard axioms); proof-pilot can regenerate
+them from the `extracted.lean` + `spec.lean` pairs via `--prove`. 3 new halva-bridge
+tests cover the dotted namespace, copy chain, and multi-gate shapes.
+
+Deferred: `shuffle` (multiset/existential — unusual, low value), `scroll-keccak`
+(too large), `scroll-batched-is-zero` (Halva emits no `meets_constraints` for it —
+a Halva-side extractor bug, separate repo).
