@@ -4,6 +4,7 @@ import Mathlib.Data.ZMod.Defs
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Algebra.Field.ZMod
 import Mathlib.Tactic.LinearCombination
+import ZkGadgets.Audit
 
 set_option linter.unusedVariables false
 
@@ -113,12 +114,19 @@ def meets_constraints (c: ValidCircuit P P_Prime): Prop :=
   all_shuffles c ∧
   ∀ col row: ℕ, (row < c.n ∧ row ≥ c.usable_rows) → c.1.Instance col row = c.1.InstanceUnassigned col row
 
-/-- Specification: when the range-check selector is enabled at a row,
-    the advice value in that row is in [0, 10).
-    Requires the prime P > 10 so that ZMod P casts are injective on Fin 10. -/
+/-- Specification: when the range-check selector is enabled at a row, the advice
+    value in that row is genuinely in [0, 10) — i.e. its canonical natural
+    representative `ZMod.val` is `< 10`.
+
+    This is the honest, non-vacuous statement. The earlier form
+    `∃ k : Fin 10, (k.val : ZMod P) = advice` is vacuous when `P ≤ 10` (the casts of
+    `0..9` then cover all of `ZMod P`), so it is provable without ever using `hp` —
+    making `hp` decorative. `ZMod.val advice < 10` cannot be proved without `hp`:
+    the bound `P > 10` is exactly what forces `ZMod.val` to agree with the small
+    integer the advice cell encodes. -/
 def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
   ∀ row : ℕ, c.get_selector 0 row = 1 →
-    ∃ k : Fin 10, (k.val : ZMod P) = c.get_advice 0 row
+    ZMod.val (c.get_advice 0 row) < 10
 
 /-- Soundness: if the circuit meets all halo2 constraints (extracted by Halva),
     then it satisfies the range-check specification.
@@ -127,15 +135,16 @@ theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
     (h: meets_constraints c): Spec c hp := by
   haveI : Fact (Nat.Prime P) := ⟨P_Prime⟩
   intro row hsel
-  unfold meets_constraints at h
-  obtain ⟨_, _, _, _, _, _, hgates, _⟩ := h
-  unfold all_gates gate_0 at hgates
-  have hgate := hgates row
-  simp only [hsel, one_mul] at hgate
-  set v := c.get_advice 0 row with hv
-  -- Product of 10 factors = 0; since ZMod P is a field (prime P), split on which factor is 0
-  rcases mul_eq_zero.mp hgate with h | h
-  · rcases mul_eq_zero.mp h with h | h
+  -- The gate forces the advice value to be one of the field elements 0..9.
+  have hex : ∃ k : Fin 10, ((k.val : ℕ) : ZMod P) = c.get_advice 0 row := by
+    unfold meets_constraints at h
+    obtain ⟨_, _, _, _, _, _, hgates, _⟩ := h
+    unfold all_gates gate_0 at hgates
+    have hgate := hgates row
+    simp only [hsel, one_mul] at hgate
+    set v := c.get_advice 0 row with hv
+    -- Product of 10 factors = 0; since ZMod P is a field (prime P), split on which factor is 0
+    rcases mul_eq_zero.mp hgate with h | h
     · rcases mul_eq_zero.mp h with h | h
       · rcases mul_eq_zero.mp h with h | h
         · rcases mul_eq_zero.mp h with h | h
@@ -143,28 +152,45 @@ theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
             · rcases mul_eq_zero.mp h with h | h
               · rcases mul_eq_zero.mp h with h | h
                 · rcases mul_eq_zero.mp h with h | h
-                  · -- v = 0
-                    exact ⟨⟨0, by omega⟩, by simpa using h.symm⟩
-                  · -- 1 + -v = 0  →  v = 1
-                    have hv1 : v = 1 := by linear_combination -h
-                    exact ⟨⟨1, by omega⟩, by simpa using hv1.symm⟩
-                · -- 2 + -v = 0  →  v = 2
-                  have hv2 : v = 2 := by linear_combination -h
-                  exact ⟨⟨2, by omega⟩, by simpa using hv2.symm⟩
-              · have hv3 : v = 3 := by linear_combination -h
-                exact ⟨⟨3, by omega⟩, by simpa using hv3.symm⟩
-            · have hv4 : v = 4 := by linear_combination -h
-              exact ⟨⟨4, by omega⟩, by simpa using hv4.symm⟩
-          · have hv5 : v = 5 := by linear_combination -h
-            exact ⟨⟨5, by omega⟩, by simpa using hv5.symm⟩
-        · have hv6 : v = 6 := by linear_combination -h
-          exact ⟨⟨6, by omega⟩, by simpa using hv6.symm⟩
-      · have hv7 : v = 7 := by linear_combination -h
-        exact ⟨⟨7, by omega⟩, by simpa using hv7.symm⟩
-    · have hv8 : v = 8 := by linear_combination -h
-      exact ⟨⟨8, by omega⟩, by simpa using hv8.symm⟩
-  · have hv9 : v = 9 := by linear_combination -h
-    exact ⟨⟨9, by omega⟩, by simpa using hv9.symm⟩
+                  · rcases mul_eq_zero.mp h with h | h
+                    · -- v = 0
+                      exact ⟨⟨0, by omega⟩, by simpa using h.symm⟩
+                    · -- 1 + -v = 0  →  v = 1
+                      have hv1 : v = 1 := by linear_combination -h
+                      exact ⟨⟨1, by omega⟩, by simpa using hv1.symm⟩
+                  · -- 2 + -v = 0  →  v = 2
+                    have hv2 : v = 2 := by linear_combination -h
+                    exact ⟨⟨2, by omega⟩, by simpa using hv2.symm⟩
+                · have hv3 : v = 3 := by linear_combination -h
+                  exact ⟨⟨3, by omega⟩, by simpa using hv3.symm⟩
+              · have hv4 : v = 4 := by linear_combination -h
+                exact ⟨⟨4, by omega⟩, by simpa using hv4.symm⟩
+            · have hv5 : v = 5 := by linear_combination -h
+              exact ⟨⟨5, by omega⟩, by simpa using hv5.symm⟩
+          · have hv6 : v = 6 := by linear_combination -h
+            exact ⟨⟨6, by omega⟩, by simpa using hv6.symm⟩
+        · have hv7 : v = 7 := by linear_combination -h
+          exact ⟨⟨7, by omega⟩, by simpa using hv7.symm⟩
+      · have hv8 : v = 8 := by linear_combination -h
+        exact ⟨⟨8, by omega⟩, by simpa using hv8.symm⟩
+    · have hv9 : v = 9 := by linear_combination -h
+      exact ⟨⟨9, by omega⟩, by simpa using hv9.symm⟩
+  -- Convert membership in {0..9} to the honest bound. This step needs `hp : P > 10`:
+  -- without it `ZMod.val` of the cast could wrap around and exceed 10.
+  obtain ⟨k, hk⟩ := hex
+  have hkP : (k.val : ℕ) < P := by have := k.isLt; omega
+  rw [← hk, ZMod.val_natCast_of_lt hkP]
+  exact k.isLt
+
+/-- Non-vacuity witness: the bound `ZMod.val advice < 10` is a genuine restriction.
+    In `ZMod 11` (prime, > 10) the element `10` refutes it, so the spec is not
+    `True` in disguise and the `P > 10` hypothesis is load-bearing. -/
+example : ¬ ((10 : ZMod 11).val < 10) := by decide
 
 
 end RangeCheck
+
+-- Verdict-engine guards (C1): the `P > 10` bound must stay in the signature, and the
+-- soundness proof must actually use it (it was decorative before the non-vacuity fix).
+#audit_requires RangeCheck.soundness "P > 10"
+#audit_uses RangeCheck.soundness
