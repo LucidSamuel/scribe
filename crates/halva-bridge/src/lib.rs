@@ -540,6 +540,59 @@ def MySpec := True
         assert!(combined.contains("def MySpec := True"));
     }
 
+    // Real Halva extractions for harder circuits, checked in under examples/.
+    // These exercise structural shapes range-check lacks: a dotted namespace, a long
+    // copy-constraint chain (Fibonacci), and multiple gates (BinaryNumber).
+    const FIB_EXTRACTED: &str = include_str!("../../../examples/halva-fibonacci/extracted.lean");
+    const FIB_SPEC: &str = include_str!("../../../examples/halva-fibonacci/spec.lean");
+    const BIN_EXTRACTED: &str =
+        include_str!("../../../examples/halva-binary-number/extracted.lean");
+
+    #[test]
+    fn parse_fibonacci_handles_dotted_namespace_and_copies() {
+        let halva = parse_halva_output(FIB_EXTRACTED).unwrap();
+        // Dotted namespace name must be captured and matched whole.
+        assert_eq!(halva.namespace, "Fibonacci.Ex1");
+        assert!(halva.has_meets_constraints);
+        let lines: Vec<&str> = FIB_EXTRACTED.lines().collect();
+        assert_eq!(lines[halva.end_line].trim(), "end Fibonacci.Ex1");
+        // The copy-constraint chain (absent from range-check) is present.
+        assert!(FIB_EXTRACTED.contains("def all_copy_constraints"));
+        assert!(FIB_EXTRACTED.contains("def copy_16"));
+    }
+
+    #[test]
+    fn parse_binary_number_handles_multiple_gates() {
+        let halva = parse_halva_output(BIN_EXTRACTED).unwrap();
+        assert_eq!(halva.namespace, "BinaryNumber");
+        assert!(halva.has_meets_constraints);
+        // Four gates, unlike range-check's single gate.
+        for gate in ["gate_0", "gate_1", "gate_2", "gate_3"] {
+            assert!(
+                BIN_EXTRACTED.contains(&format!("def {gate} ")),
+                "missing {gate}"
+            );
+        }
+    }
+
+    #[test]
+    fn scaffold_raw_on_fibonacci_preserves_copies_and_closes_dotted_namespace() {
+        let halva = parse_halva_output(FIB_EXTRACTED).unwrap();
+        let combined = scaffold_raw(&halva, FIB_SPEC);
+        // Spec + theorem spliced in, copy chain preserved, namespace closed once.
+        assert!(combined.contains("def Spec"));
+        assert!(combined.contains("theorem soundness"));
+        assert!(combined.contains("def copy_16"));
+        assert!(combined.ends_with("end Fibonacci.Ex1\n"));
+        assert_eq!(combined.matches("end Fibonacci.Ex1").count(), 1);
+        // Spec import merged into the header, ahead of the namespace.
+        let import_pos = combined
+            .find("import Mathlib.Tactic.LinearCombination")
+            .unwrap();
+        let ns_pos = combined.find("namespace Fibonacci.Ex1").unwrap();
+        assert!(import_pos < ns_pos);
+    }
+
     #[test]
     fn scaffold_raw_moves_import_after_block_doc_comment() {
         let halva = parse_halva_output(SAMPLE_HALVA).unwrap();

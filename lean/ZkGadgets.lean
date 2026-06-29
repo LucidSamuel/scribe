@@ -5,3 +5,5 @@ import ZkGadgets.PoseidonSbox
 import ZkGadgets.NonzeroCheck
 import ZkGadgets.EdwardsAddition
 import ZkGadgets.HalvaRangeCheck
+import ZkGadgets.HalvaFibonacci
+import ZkGadgets.HalvaBinaryNumber
