@@ -110,7 +110,22 @@ Use `--prove` to launch proof-pilot after scaffolding. Structured specifications
 
 `scribe verify` is the single-command path from a Halva extractor project to a kernel-checked proof.
 
-**scoping note:** `scribe verify --circuit` operates on a Halva *extractor project* — you still author the Halva extractor program that runs against your halo2 circuit. scribe does not read raw halo2 Rust source. the command is: extractor-project-output → Lean scaffold → LLM proof loop → kernel-accepted `.lean` file.
+**scoping note:** `scribe verify --circuit` operates on a Halva *extractor project* — you still author the Halva extractor program that runs against your halo2 circuit. `scribe init --circuit` can generate that project skeleton, but scribe does not read raw halo2 Rust source directly. the command is: extractor-project-output → Lean scaffold → LLM proof loop → kernel-accepted `.lean` file.
+
+## scribe init
+
+`scribe init --circuit` creates the editable Halva extractor project that `scribe verify --circuit` expects.
+
+```
+scribe init \
+  --circuit path/to/raw-halo2-circuit-crate \
+  --output  path/to/halva-extractor-project \
+  [--name MyCircuit] \
+  [--halva-git https://github.com/<owner>/<repo>.git] \
+  [--halva-rev REV]
+```
+
+The generated project contains `Cargo.toml`, `src/main.rs`, and a README. Fill in `src/main.rs` to instantiate your circuit, call Halva, and print the extracted Lean to stdout; then pass that generated project to `scribe verify --circuit`. If `--halva-git` is omitted, the generated `Cargo.toml` leaves the Halva dependency as an explicit TODO instead of guessing a repository URL.
 
 ```
 # from a pre-extracted Halva .lean file + a user spec snippet
