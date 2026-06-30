@@ -1,4 +1,5 @@
 import ZkGadgets.Field
+import ZkGadgets.Audit
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Data.Fin.Basic
 import Mathlib.Algebra.BigOperators.Group.Finset.Basic
@@ -11,17 +12,27 @@ Constraint system:
   b_i * (b_i - 1) = 0       for i in [0, 8)   (each bit is boolean)
   sum (b_i * 2^i) = x                           (bit decomposition)
 
-Soundness: if the constraints hold and p > 256, then x is in [0, 256).
+Soundness: if the constraints hold and p > 256, then `x` is genuinely a byte,
+i.e. its canonical natural representative is in [0, 256).
+
+The conclusion is `ZMod.val x < 256`, NOT `∃ k : Fin 256, (k.val : ZMod p) = x`.
+The existential is vacuous whenever `p ≤ 256` (every field element is then the cast
+of some byte), so it would state something strictly weaker than "x is a byte" and
+could be proved without ever using `hp`. `ZMod.val x < 256` cannot be proved without
+`hp` — the bound `p > 256` is what makes `ZMod.val` agree with the integer value.
 -/
 
-variable (p : ℕ) [Fact (Nat.Prime p)] (hp : p > 256)
+variable (p : ℕ) [Fact (Nat.Prime p)]
 
 theorem range_check_8bit_sound
+    -- `hp` is an explicit, load-bearing hypothesis: the proof fails without it, and
+    -- `#check @range_check_8bit_sound` shows it in the signature (it is not dropped).
+    (hp : p > 256)
     (x : ZMod p)
     (bits : Fin 8 → ZMod p)
     (h_bit : ∀ i : Fin 8, bits i * (bits i - 1) = 0)
     (h_decomp : (∑ i : Fin 8, bits i * (2 : ZMod p) ^ (i : ℕ)) = x) :
-    ∃ k : Fin 256, (k.val : ZMod p) = x := by
+    ZMod.val x < 256 := by
   -- Each bit is 0 or 1 in ZMod p
   have h01 : ∀ i, bits i = 0 ∨ bits i = 1 := fun i => bit_boolean p (bits i) (h_bit i)
   -- Natural representative for each bit
@@ -40,9 +51,25 @@ theorem range_check_8bit_sound
       exact Nat.mul_le_mul_right _ (hle i)
     · simp only [Fin.sum_univ_succ, Fin.sum_univ_zero, Fin.val_zero, Fin.val_succ]
       omega
-  -- Provide the Fin 256 witness
-  exact ⟨⟨∑ i : Fin 8, nb i * 2 ^ (i : ℕ), hlt⟩, by
+  -- x is the cast of the natural weighted sum N, with N < 256.
+  have hxN : x = ((∑ i : Fin 8, nb i * 2 ^ (i : ℕ) : ℕ) : ZMod p) := by
     rw [← h_decomp]
     push_cast
     congr 1; ext i
-    rw [hcast i]⟩
+    rw [hcast i]
+  -- N < 256 < p (this is where `hp` is used), so `ZMod.val` of the cast is exactly N.
+  have hNp : (∑ i : Fin 8, nb i * 2 ^ (i : ℕ)) < p := by omega
+  rw [hxN, ZMod.val_natCast_of_lt hNp]
+  exact hlt
+
+/-- Non-vacuity witness: the byte bound `ZMod.val x < 256` is a genuine restriction,
+    not `True` in disguise. In `ZMod 257` (prime, > 256) the element `256` refutes the
+    conclusion — so the soundness theorem is saying something real, and dropping the
+    constraints (or the `p > 256` hypothesis) would make it false. This is the kind of
+    refutation a spec-level search should always be able to find for an honest spec. -/
+example : ¬ ((256 : ZMod 257).val < 256) := by decide
+
+-- Verdict-engine guards (C1): fail the build if the `p > 256` bound is ever dropped
+-- from the signature, or if the proof stops using a declared hypothesis.
+#audit_requires range_check_8bit_sound "p > 256"
+#audit_uses range_check_8bit_sound
