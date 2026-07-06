@@ -73,3 +73,5 @@ example : ¬ ((256 : ZMod 257).val < 256) := by decide
 -- from the signature, or if the proof stops using a declared hypothesis.
 #audit_requires range_check_8bit_sound "p > 256"
 #audit_uses range_check_8bit_sound
+-- Soundness gate: the proof rests only on the trusted kernel axioms.
+#audit_axioms range_check_8bit_sound

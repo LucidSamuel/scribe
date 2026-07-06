@@ -23,3 +23,6 @@ theorem nonzero_check_sound
   have hmul : x * x_inv = 1 := sub_eq_zero.mp h_inverse
   rw [h_zero, zero_mul] at hmul
   exact one_ne_zero hmul.symm
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms nonzero_check_sound

@@ -20,3 +20,6 @@ theorem conditional_select_sound
   rcases bit_boolean p b h_bool with hb | hb <;> simp [hb] at h_sel ⊢
   · exact h_sel.symm
   · exact h_sel.symm
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms conditional_select_sound

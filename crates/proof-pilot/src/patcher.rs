@@ -23,13 +23,6 @@ pub fn apply_patch_with_diagnostics(
     // Split code block into import lines and proof body
     let (new_imports, proof_body) = split_imports(&code_block);
 
-    // Reject forbidden tactics in the proof body
-    for kw in &["sorry", "axiom", "native_decide"] {
-        if proof_body.contains(kw) {
-            return Err(PatchError::ForbiddenTactic);
-        }
-    }
-
     let target =
         select_proof_target(source, build_output, target_file).ok_or(PatchError::NoMarker)?;
 
@@ -47,6 +40,18 @@ pub fn apply_patch_with_diagnostics(
         .strip_prefix("by\n")
         .or_else(|| proof_body.strip_prefix("by "))
         .unwrap_or(proof_body);
+
+    // Models that echo the whole file also echo what FOLLOWS the proof — the
+    // namespace `end` and the `#audit_axioms` gate. Cut the body at the first
+    // top-level boundary so that scaffold furniture is not spliced in twice.
+    let proof_body = truncate_at_top_level_boundary(proof_body);
+
+    // Reject forbidden tactics in what will actually be spliced. Token-aware
+    // (comment/string-skipping), so the scaffold's own `#audit_axioms` line or
+    // a `-- no axioms` comment in an echo does not trip it.
+    if crate::lean_runner::forbidden_source_token(proof_body).is_some() {
+        return Err(PatchError::ForbiddenTactic);
+    }
 
     // Merge new imports into the header
     let header = if new_imports.is_empty() {
@@ -182,9 +187,9 @@ fn line_number_at(source: &str, byte_pos: usize) -> usize {
 }
 
 fn contains_forbidden(text: &str) -> bool {
-    ["sorry", "axiom", "native_decide"]
-        .iter()
-        .any(|kw| text.contains(kw))
+    // Token-aware: `sorry` in a comment or `#audit_axioms` in a trailing gate
+    // line must not make a completed proof look unfinished.
+    crate::lean_runner::forbidden_source_token(text).is_some()
 }
 
 /// Find the end of the current proof body, preserving later top-level declarations.
@@ -204,6 +209,14 @@ fn find_proof_body_end(source: &str, start: usize) -> usize {
     source.len()
 }
 
+/// Truncate an LLM proof body at the first flush-left top-level line (`end`,
+/// a `#` command, another declaration). Mirrors `find_proof_body_end`: the
+/// echoed remainder of a scaffold must not survive into the spliced proof.
+fn truncate_at_top_level_boundary(body: &str) -> &str {
+    let end = find_proof_body_end(body, 0);
+    &body[..end]
+}
+
 fn is_top_level_boundary(line: &str) -> bool {
     let trimmed = line.trim_start();
     if trimmed.len() != line.len() {
@@ -214,12 +227,20 @@ fn is_top_level_boundary(line: &str) -> bool {
         return false;
     };
 
+    // `#`-prefixed commands (`#audit_axioms`, `#print`, `#eval`, ...) sit at the
+    // top level next to declarations; treating them as boundaries keeps a proof
+    // splice from swallowing an audit gate placed after a theorem.
+    if first.starts_with('#') {
+        return true;
+    }
+
     matches!(
         first,
         "abbrev"
             | "axiom"
             | "class"
             | "def"
+            | "end"
             | "example"
             | "import"
             | "inductive"
@@ -429,6 +450,64 @@ lemma helper_two : True := by
         let result = apply_patch(SOURCE_WITH_SUFFIX, llm).unwrap();
         assert!(result.contains("theorem foo_sound :\n    True := by\n  trivial"));
         assert!(result.contains("lemma keep_me : True := by\n  trivial"));
+        assert!(!result.contains("sorry"));
+    }
+
+    const SOURCE_WITH_GATE: &str = r#"import Mathlib.Data.ZMod.Basic
+
+namespace Gadget
+
+theorem soundness : True := by
+  sorry
+
+end Gadget
+
+#audit_axioms Gadget.soundness  -- proof must rest only on the trusted kernel axioms
+"#;
+
+    #[test]
+    fn preserves_trailing_namespace_end_and_audit_gates() {
+        let result = apply_patch(SOURCE_WITH_GATE, "```lean\n  trivial\n```").unwrap();
+        assert!(result.contains("theorem soundness : True := by\n  trivial"));
+        assert!(result.contains("end Gadget"));
+        assert!(result.contains("#audit_axioms Gadget.soundness"));
+        assert!(!result.contains("sorry"));
+    }
+
+    #[test]
+    fn preserves_trailing_hash_command_after_flat_theorem() {
+        let source = r#"import Mathlib.Data.ZMod.Basic
+
+theorem foo_sound : True := by
+  sorry
+
+#audit_axioms foo_sound  -- proof must rest only on the trusted kernel axioms
+"#;
+        let result = apply_patch(source, "```lean\n  trivial\n```").unwrap();
+        assert!(result.contains("theorem foo_sound : True := by\n  trivial"));
+        assert!(result.contains("#audit_axioms foo_sound"));
+        assert!(!result.contains("sorry"));
+    }
+
+    #[test]
+    fn accepts_full_file_echo_containing_audit_gate() {
+        // Model echoes the entire scaffold — including the gate line, whose
+        // `audit_axioms` token and `axioms` comment previously tripped the
+        // substring-based forbidden check. The trailing furniture must also
+        // not be spliced into the proof twice.
+        let llm = "```lean\nimport Mathlib.Data.ZMod.Basic\n\nnamespace Gadget\n\ntheorem soundness : True := by\n  trivial\n\nend Gadget\n\n#audit_axioms Gadget.soundness  -- proof must rest only on the trusted kernel axioms\n```";
+        let result = apply_patch(SOURCE_WITH_GATE, llm).unwrap();
+        assert!(result.contains("theorem soundness : True := by\n  trivial"));
+        assert!(!result.contains("sorry"));
+        assert_eq!(result.matches("#audit_axioms").count(), 1);
+        assert_eq!(result.matches("end Gadget").count(), 1);
+    }
+
+    #[test]
+    fn accepts_proof_with_axiom_word_in_comment() {
+        let llm = "```lean\n  trivial -- uses no extra axioms\n```";
+        let result = apply_patch(SOURCE, llm).unwrap();
+        assert!(result.contains(":= by\n  trivial -- uses no extra axioms"));
         assert!(!result.contains("sorry"));
     }
 

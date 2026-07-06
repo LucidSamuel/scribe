@@ -95,11 +95,12 @@ pub fn run_verify(args: VerifyArgs) {
             eprintln!("error: cannot read --spec-file {snippet_path}: {e}");
             process::exit(1);
         });
-        scaffold_raw(&halva, &snippet)
+        scaffold_raw(&halva, &snippet, !args.no_audit_gate)
     } else if let Some(ref spec_body) = args.spec {
         let config = SpecConfig {
             spec_body: spec_body.clone(),
             extra_imports: args.extra_imports.clone(),
+            audit_gate: !args.no_audit_gate,
         };
         scaffold_soundness(&halva, &config)
     } else {
@@ -243,7 +244,11 @@ const DEMO_GADGET_DESCRIPTION: &str =
 
 const DEMO_IR_SNIPPET: &str = r#"# gadget.toml (range-check-8bit)
 name = "range-check-8bit"
-soundness_spec = "∃ k : Fin 256, (k.val : ZMod p) = x"
+soundness_spec = "ZMod.val x < 256"
+
+[[hypotheses]]
+name = "hp"
+lean_type = "p > 256"
 
 [[constraints]]
 label = "bit_0"
@@ -253,19 +258,22 @@ terms = [{ coeff = "1", vars = [1, 1] }, { coeff = "-1", vars = [1] }]
 const DEMO_SCAFFOLD_SNIPPET: &str = r#"-- Generated Lean 4 scaffold (lean-emit → sorry stub)
 theorem range_check_8bit_sound
     (x : ZMod p) (bits : Fin 8 → ZMod p)
+    (hp : p > 256)
     (h_bit : ∀ i : Fin 8, bits i * (bits i - 1) = 0)
     (h_decomp : (∑ i : Fin 8, bits i * (2 : ZMod p) ^ (i : ℕ)) = x) :
-    ∃ k : Fin 256, (k.val : ZMod p) = x := by
-  sorry  -- ← proof-pilot will fill this in"#;
+    ZMod.val x < 256 := by
+  sorry  -- ← proof-pilot will fill this in
+
+#audit_axioms range_check_8bit_sound  -- fails the build until the proof is real"#;
 
 const DEMO_PROOF_LOOP_SNIPPET: &str = r#"-- proof-pilot loop (iteration 1/10) → backend: claude-cli
--- Lean LSP feedback:  unsolved goal  ⊢ ∃ k : Fin 256, (k.val : ZMod p) = x
+-- Lean LSP feedback:  unsolved goal  ⊢ ZMod.val x < 256
 -- Tactic probe: `ring` — no progress; `norm_num` — no progress
--- LLM response: extracted proof body via linear_combination + Fin witness
+-- LLM response: extracted proof body via bit-bound case analysis + omega
 -- patch applied: OK  →  lake build: SUCCESS (0 errors, 0 sorry)"#;
 
 const DEMO_KERNEL_SNIPPET: &str = r#"-- Lean kernel check (lake build + lake env lean ZkGadgets/RangeCheck.lean)
--- Result: ✓  no errors, no sorry, no axioms beyond Mathlib"#;
+-- Result: ✓  no errors, no sorry, #audit_axioms: only propext/Classical.choice/Quot.sound"#;
 
 const DEMO_STAGE_LABELS: [&str; 4] = [
     "Stage 1: IR → scaffold",
@@ -373,7 +381,9 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
         process::exit(1);
     });
 
-    let combined = scaffold_raw(&halva, &snippet);
+    // The live demo writes into scribe's own lake project, so the gate is
+    // always available there.
+    let combined = scaffold_raw(&halva, &snippet, true);
 
     // Write a temporary output file inside the lake dir.
     let out_path = format!("{lake_dir}/ZkGadgets/HalvaRangeCheckLive.lean");

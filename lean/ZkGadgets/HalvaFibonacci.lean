@@ -1,3 +1,4 @@
+import ZkGadgets.Audit
 import Mathlib.Data.Nat.Prime.Defs
 import Mathlib.Data.Nat.Prime.Basic
 import Mathlib.Data.ZMod.Defs
@@ -195,3 +196,6 @@ theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): Spec c :
   linear_combination e7 - hc16
 
 end Fibonacci.Ex1
+
+-- Soundness gate: the proof rests only on the trusted kernel axioms.
+#audit_axioms Fibonacci.Ex1.soundness

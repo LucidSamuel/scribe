@@ -30,3 +30,6 @@ theorem poseidon_sbox_sound
   have hy : y = r * x := by linear_combination h_output
   rw [hy, hr, hq]
   ring
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms poseidon_sbox_sound

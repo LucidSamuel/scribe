@@ -32,11 +32,11 @@
 Zero-knowledge circuits are notoriously hard to get right: a single under-constrained gate is a soundness bug that no amount of testing reliably catches. **scribe** turns the soundness of a ZK gadget into a theorem and proves it using a large language model to *write* the proof and the **Lean 4 kernel** to *check* it.
 
 > [!IMPORTANT]
-> The Lean kernel is the oracle, not the LLM. `proof-pilot` builds the Lake project and then compiles the exact target file. The model cannot fake acceptance with `sorry`, `axiom`, or `native_decide` — these are blocked in three independent places: `proof-pilot` itself, a pre-commit hook, and CI.
+> The Lean kernel is the oracle, not the LLM. `proof-pilot` builds the Lake project and then compiles the exact target file. The real guarantee is an `#audit_axioms` gate compiled next to every theorem: it runs the kernel's own axiom tracking and **fails the build unless the proof's axiom set is a subset of `{propext, Classical.choice, Quot.sound}`**. So `sorry`, `admit`, `axiom`, or `native_decide` cannot survive — not even reached transitively through a dependency. Fast textual scans in `proof-pilot`, a pre-commit hook, and CI are a pre-filter; the axiom gate is the source of truth.
 
 Three properties make this trustworthy:
 
-- **Sound by construction.** Every proof in this repo is checked by the Lean 4 kernel. `#print axioms` on each theorem shows only the standard axioms: no `sorryAx`, no custom assumptions.
+- **Sound by construction.** Every proof in this repo is checked by the Lean 4 kernel, and an `#audit_axioms` gate next to each theorem runs the engine behind `#print axioms` at build time, rejecting anything that depends on more than the three standard axioms. That catches a transitive `sorryAx` (what `sorry`/`admit` elaborate to) or `native_decide`'s `ofReduceBool` reached through any dependency — which a textual grep cannot. See [`Audit.lean`](lean/ZkGadgets/Audit.lean).
 - **Automated.** An LLM drives a closed feedback loop, edit the proof, compile, read the errors (or structured LSP goal states), repeat until the kernel accepts or the budget runs out.
 - **Real circuits.** The `halva-bridge` consumes actual Halva-style halo2 extraction output and proves soundness against a human-written specification.
 
@@ -118,7 +118,7 @@ scribe verify \
   --output    lean/ZkGadgets/MyCircuit.lean
 ```
 
-Both forms run `proof-pilot` by default and exit `0` only when the Lean kernel accepts the proof. The output `.lean` file is the artifact; no `sorry` or `axiom` survive. Pass `--no-prove` to emit only the scaffold (which still contains `sorry`) and skip the proof loop.
+Both forms run `proof-pilot` by default and exit `0` only when the Lean kernel accepts the proof. The output `.lean` file is the artifact, and every generated scaffold carries an `#audit_axioms` gate next to its theorem — so the file only ever compiles once the proof is real and rests solely on the three standard axioms. Pass `--no-prove` to emit only the scaffold (which still contains `sorry`, and therefore fails the build until proven) and skip the proof loop. The gate's command is provided by scribe's own `lean/` project; pass `--no-audit-gate` if the scaffold targets a Lake project without the ZkGadgets library (at the cost of the unproven-scaffold-is-red guarantee).
 
 > [!NOTE]
 > **Scope.** `scribe verify --circuit` operates on a Halva *extractor project* — you still author the small extractor program that runs against your halo2 circuit. scribe does not read raw halo2 Rust source directly. The chain is: extractor-project output → Lean scaffold → LLM proof loop → kernel-accepted `.lean`.
@@ -193,7 +193,7 @@ The same flow scales to harder circuits. `examples/halva-fibonacci/` and `exampl
 
 ## Proven Gadgets
 
-Every theorem below is complete and kernel-checked (`lake build` is green, with no `sorry` / `axiom` / `native_decide`).
+Every theorem below is complete and kernel-checked (`lake build` is green, and each theorem's `#audit_axioms` gate confirms it depends only on `propext`, `Classical.choice`, and `Quot.sound`).
 
 | Gadget | Constraints | Soundness claim |
 |---|---|---|
@@ -252,14 +252,14 @@ docs/              architecture.md, why.md
 
 Contributions are welcome — please open an issue or PR on [GitHub](https://github.com/LucidSamuel/scribe).
 
-Before committing, enable the git hook that rejects any `sorry`, `axiom`, or `native_decide` added to Lean files:
+Before committing, enable the git hook that rejects any `sorry`, `axiom`, or `native_decide` added to Lean files (a fast pre-filter — the build's `#audit_axioms` gates are the real check):
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
 > [!CAUTION]
-> CI runs `cargo check` + `cargo test --workspace`, `lake build`, and a `sorry`/`axiom`/`native_decide` scan over `lean/ZkGadgets`. A green local `lake build` and `cargo test` are the bar before opening a PR; running `cargo fmt` and `cargo clippy` first is good practice.
+> CI runs `cargo check` + `cargo test --workspace`, `lake build` (which enforces the per-theorem `#audit_axioms` gates), and a fast `sorry`/`axiom`/`native_decide` pre-filter scan over `lean/ZkGadgets`. A green local `lake build` and `cargo test` are the bar before opening a PR; running `cargo fmt` and `cargo clippy` first is good practice.
 
 ## License
 

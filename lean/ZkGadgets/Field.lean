@@ -1,5 +1,6 @@
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Algebra.Field.ZMod
+import ZkGadgets.Audit
 
 /-!
 # Field helpers for ZK gadget verification
@@ -30,3 +31,7 @@ theorem fin_val_cast_injective (n : ℕ) (hn : n < p) :
   rw [ZMod.natCast_eq_natCast_iff'] at hab
   rw [Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb] at hab
   exact hab
+
+-- Soundness gate: these lemmas rest only on the trusted kernel axioms.
+#audit_axioms bit_boolean
+#audit_axioms fin_val_cast_injective

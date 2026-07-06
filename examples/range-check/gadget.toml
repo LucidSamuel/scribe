@@ -5,11 +5,13 @@
 #   b_i * (b_i - 1) = 0   for i in [0, 8)   (each bit is boolean)
 #   sum(b_i * 2^i) = x                        (bit decomposition)
 #
-# Soundness: exists k : Fin 256, (k.val : ZMod p) = x
+# Soundness: ZMod.val x < 256 — a genuine bound on the canonical representative.
+# hp : p > 256 is load-bearing: the previous existential spec
+# (exists k : Fin 256, (k.val : ZMod p) = x) was vacuously true for p <= 256.
 
 name = "range-check-8bit"
 modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
-soundness_spec = "∃ k : Fin 256, (k.val : ZMod p) = x"
+soundness_spec = "ZMod.val x < 256"
 
 [[hypotheses]]
 name = "hp"

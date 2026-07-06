@@ -137,3 +137,6 @@ theorem edwards_addition_sound
     · exact absurd h_right hE2_ne
   -- Step 6: Convert G = 0 to the goal equality
   linear_combination h_zero
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms edwards_addition_sound

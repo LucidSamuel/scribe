@@ -18,9 +18,16 @@ classes that both shipped in this repo at one point:
   `#audit_requires` guards a load-bearing condition by name.
 
 Both commands fail the build (`logError`) when they fire, so they act as live CI
-gates next to a theorem. The remaining checks — finite-model non-vacuity probes
-(C2), antecedent satisfiability (C3), and an adversarial refuter (C4) — are future
-work and not implemented here.
+gates next to a theorem.
+
+Alongside these statement-liveness checks, `#audit_axioms` guards *proof* soundness:
+it runs the kernel's own dependency tracking (the engine behind `#print axioms`) and
+fails the build unless the theorem rests only on `{propext, Classical.choice, Quot.sound}`.
+This is the source of truth that the textual pre-filter scans only approximate — it
+catches a transitive `sorryAx` (what an unfinished proof or `admit` elaborate to) or
+`Lean.ofReduceBool` (the native-decision escape hatch) reached through any dependency,
+which a grep cannot. The remaining checks — finite-model non-vacuity probes (C2),
+antecedent satisfiability (C3), and an adversarial refuter (C4) — are future work.
 -/
 
 open Lean Elab Command Meta
@@ -53,6 +60,19 @@ def signatureString (declName : Name) : MetaM String := do
   let info ← getConstInfo declName
   return toString (← ppExpr info.type)
 
+/-- The only axioms a kernel-checked proof in this repo is permitted to rest on:
+    propositional extensionality, quotient soundness, and choice. Anything else is
+    a soundness escape hatch — most importantly `sorryAx` (what an unfinished proof,
+    `admit`, or a homoglyph trick all elaborate to) and `Lean.ofReduceBool` (emitted
+    by the native-decision tactic), plus any hand-declared assumption. -/
+def trustedAxioms : List Name := [`propext, `Classical.choice, `Quot.sound]
+
+/-- The subset of `used` outside `trustedAxioms` — the escape hatches a declaration
+    actually reached. Empty ⇒ the proof rests only on the trusted set. Order-preserving
+    so error messages list offenders as the kernel reports them. -/
+def untrustedAxioms (used : Array Name) : Array Name :=
+  used.filter (fun a => !trustedAxioms.contains a)
+
 end ScribeAudit
 
 /-- `#audit_uses thm` fails the build if `thm` has an explicit hypothesis its proof
@@ -77,6 +97,22 @@ elab "#audit_requires " id:ident needle:str : command => do
     unless (sig.splitOn needleStr).length ≥ 2 do
       logError m!"audit ✗ {declName}: required hypothesis '{needleStr}' is absent from the signature — it may have been dropped"
 
+/-- `#audit_axioms thm` runs the kernel's own dependency tracking (the engine behind
+    `#print axioms`) on `thm` and fails the build unless every constant it depends on
+    is in `ScribeAudit.trustedAxioms`. This is the *source of truth* for soundness:
+    it sees a transitive `sorryAx` reached through any dependency and cannot be fooled
+    by `admit`, a `sorryAx` homoglyph, or a `lake build` that only warns rather than
+    errors. The textual scans are a fast pre-filter; this command is the guarantee. -/
+elab "#audit_axioms " id:ident : command => do
+  liftTermElabM do
+    let declName ← realizeGlobalConstNoOverload id
+    let used ← Lean.collectAxioms declName
+    let bad := ScribeAudit.untrustedAxioms used
+    unless bad.isEmpty do
+      let names := String.intercalate ", " (bad.toList.map toString)
+      logError m!"audit ✗ {declName}: depends on untrusted constants: {names} \
+        (only {ScribeAudit.trustedAxioms} are permitted)"
+
 namespace ScribeAudit.SelfTest
 
 -- The decoy below deliberately ignores a hypothesis; that is the property under test.
@@ -95,5 +131,18 @@ run_cmd liftTermElabM do
   let good ← ScribeAudit.unusedHyps ``decoy_live
   unless good.isEmpty do
     throwError "audit self-test failed: expected no unused hyps, got {good}"
+
+-- Deterministic unit test of the trusted-set filter. Uses `sorryAx`/`ofReduceBool`
+-- as name literals only, so the test needs no genuinely-unsound declaration and the
+-- file stays clean under the textual pre-filter.
+run_cmd liftTermElabM do
+  let flagged := ScribeAudit.untrustedAxioms #[`sorryAx, `propext, `Lean.ofReduceBool, `Quot.sound]
+  unless flagged == #[`sorryAx, `Lean.ofReduceBool] do
+    throwError "trusted-set self-test failed: expected [sorryAx, Lean.ofReduceBool] flagged, got {flagged}"
+  unless (ScribeAudit.untrustedAxioms #[`propext, `Classical.choice, `Quot.sound]).isEmpty do
+    throwError "trusted-set self-test failed: permitted set wrongly flagged"
+
+-- Happy path through the real command: a fully-proved decl passes silently.
+#audit_axioms decoy_live
 
 end ScribeAudit.SelfTest

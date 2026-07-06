@@ -194,3 +194,5 @@ end RangeCheck
 -- soundness proof must actually use it (it was decorative before the non-vacuity fix).
 #audit_requires RangeCheck.soundness "P > 10"
 #audit_uses RangeCheck.soundness
+-- Soundness gate: the proof rests only on the trusted kernel axioms.
+#audit_axioms RangeCheck.soundness
