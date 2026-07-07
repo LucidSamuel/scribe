@@ -16,6 +16,20 @@ Constraints:
 
 Soundness: 168700 * x3 * x3 + y3 * y3 = 1 + 168696 * x3 * x3 * y3 * y3
 
+## Scope — what this theorem does and does not say
+
+* It proves **closure**: inputs on the curve + the two addition constraints imply
+  the output `(x3, y3)` is on the curve. Closure is necessary but *not sufficient*
+  for "the gadget computes Edwards addition" — a buggy gadget could emit a wrong
+  on-curve point. Full functional soundness would conclude
+  `(x3, y3) = (x1, y1) + (x2, y2)` against the twisted Edwards group law
+  (equivalently, witness uniqueness given the inputs). Future work.
+* `h_nondeg_x` / `h_nondeg_y` (nonzero denominators) are **assumed**, not derived.
+  Baby Jubjub is a complete twisted Edwards curve (`a = 168700` a square,
+  `d = 168696` a non-square mod the BN254 scalar prime), so they in fact hold for
+  all on-curve inputs; deriving them from the curve parameters instead of
+  assuming them is future work.
+
 Proof strategy:
   1. Extract x3*(1+D) = A and y3*(1-D) = B from constraints
   2. Square to get x3²*Dp² = A² and y3²*E² = B²

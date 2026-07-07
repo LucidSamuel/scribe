@@ -1,0 +1,52 @@
+# NEGATIVE GADGET — deliberately under-constrained. The proof loop MUST fail here.
+#
+# A "2-bit range check" whose b1 boolean constraint was forgotten — the classic
+# under-constrained-circuit bug (the exact class Picus/Ecne hunt for). b1 can be
+# any field element, so x = b0 + 2*b1 is unbounded and the spec below is FALSE
+# (witness: b0 = 0, b1 = 2 gives x = 4 with all constraints satisfied).
+#
+# Witness: x and bits b0, b1
+# Constraints:
+#   b0 * (b0 - 1) = 0        (b0 boolean)
+#   -- b1 * (b1 - 1) = 0     DELIBERATELY OMITTED
+#   b0 + 2*b1 - x = 0        (decomposition)
+#
+# Claimed (false) soundness: ZMod.val x < 4
+#
+# A run that "proves" this spec is a soundness alarm: either the harness accepted
+# a non-proof, or the scaffold does not state what this file says it states.
+
+name = "neg-underconstrained-range-2bit"
+modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+soundness_spec = "ZMod.val x < 4"
+
+[[hypotheses]]
+name = "hp"
+lean_type = "p > 4"
+
+[[witnesses]]
+id = 0
+name = "x"
+
+[[witnesses]]
+id = 1
+name = "b0"
+
+[[witnesses]]
+id = 2
+name = "b1"
+
+[[constraints]]
+label = "bit_0"
+terms = [
+    { coeff = "1", vars = [1, 1] },
+    { coeff = "-1", vars = [1] },
+]
+
+[[constraints]]
+label = "decomposition"
+terms = [
+    { coeff = "1", vars = [1] },
+    { coeff = "2", vars = [2] },
+    { coeff = "-1", vars = [0] },
+]

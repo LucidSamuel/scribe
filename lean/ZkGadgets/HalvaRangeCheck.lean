@@ -3,6 +3,7 @@ import Mathlib.Data.Nat.Prime.Basic
 import Mathlib.Data.ZMod.Defs
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Algebra.Field.ZMod
+import Mathlib.FieldTheory.Finite.Basic
 import Mathlib.Tactic.LinearCombination
 import ZkGadgets.Audit
 
@@ -196,3 +197,31 @@ end RangeCheck
 #audit_uses RangeCheck.soundness
 -- Soundness gate: the proof rests only on the trusted kernel axioms.
 #audit_axioms RangeCheck.soundness
+
+/-- **Model-fidelity audit (inherited from Halva).** The extractor's `isValid`
+    preamble defines `multiplicative_generator P g := g ^ P = 1`, which is
+    mathematically wrong: by Fermat's little theorem `g ^ P = g` in `ZMod P` for
+    prime `P`, so the predicate holds *only* for `g = 1` — an actual generator can
+    never satisfy it. This is harmless for every proof in this repo (they
+    destructure `meets_constraints` and never load `isValid`'s generator field),
+    but it is exactly why "valid circuit" preambles deserve their own scrutiny.
+    Kernel-checked here so the smell can neither silently disappear nor be
+    silently relied upon. Upstream: Halva `src/extraction.rs`
+    (`multiplicative_generator`). -/
+theorem RangeCheck.multiplicative_generator_forces_one
+    {P : ℕ} (hP : Nat.Prime P) (g : ZMod P) :
+    RangeCheck.multiplicative_generator P g ↔ g = 1 := by
+  haveI : Fact (Nat.Prime P) := ⟨hP⟩
+  unfold RangeCheck.multiplicative_generator
+  constructor
+  · intro h
+    exact (ZMod.pow_card g).symm.trans h
+  · intro h
+    rw [h, one_pow]
+
+-- Concrete witness: 2 generates (ZMod 5)ˣ yet fails the predicate (2^5 = 2 ≠ 1).
+example : ¬ RangeCheck.multiplicative_generator 5 2 := by
+  unfold RangeCheck.multiplicative_generator
+  decide
+
+#audit_axioms RangeCheck.multiplicative_generator_forces_one

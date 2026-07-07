@@ -191,6 +191,9 @@ Use `--prove` to launch `proof-pilot` after scaffolding. Structured specs can us
 
 The same flow scales to harder circuits. `examples/halva-fibonacci/` and `examples/halva-binary-number/` are real extractions (`cargo run --example fib` / `--example scroll-binary-number` in the Halva repo) bridged to proven theorems — exercising **copy constraints** and **multi-gate** circuits respectively, neither of which the range-check example touches.
 
+> [!NOTE]
+> **Inherited-model fidelity.** Halva's emitted `Circuit.isValid` preamble defines `multiplicative_generator P g := g ^ P = 1`, which is mathematically wrong: Fermat's little theorem gives `g ^ P = g` in `ZMod P`, so the predicate forces `g = 1` and can never hold of an actual generator. This is harmless for the proofs here — they destructure `meets_constraints` and never load `isValid`'s generator field — but it is a standing example of why "valid circuit" preambles deserve their own scrutiny. The smell is pinned by a kernel-checked witness, [`RangeCheck.multiplicative_generator_forces_one`](lean/ZkGadgets/HalvaRangeCheck.lean), so it can neither silently disappear nor be silently relied upon. Worth an upstream report to Halva.
+
 ## Proven Gadgets
 
 Every theorem below is complete and kernel-checked (`lake build` is green, and each theorem's `#audit_axioms` gate confirms it depends only on `propext`, `Classical.choice`, and `Quot.sound`).
@@ -201,10 +204,30 @@ Every theorem below is complete and kernel-checked (`lake build` is green, and e
 | conditional select | 2 (boolean + mux) | `(b = 0 ∧ z = y) ∨ (b = 1 ∧ z = x)` |
 | poseidon s-box | 3 (squaring chain) | `y = x ^ 5` |
 | non-zero check | 1 (inverse) | `x ≠ 0` |
-| edwards addition | 2 (baby jubjub add) | output point on curve |
+| edwards addition | 2 (baby jubjub add) | output point on curve (closure — see scope note) |
 | **Halva** polynomial range check | 1 (10-factor polynomial) | `ZMod.val advice < 10` on enabled rows (requires `P > 10`) |
 | **Halva** Fibonacci | 1 add gate + 17 copy constraints | output instance cell `= 21·f(0) + 34·f(1)` |
 | **Halva** binary number | 4 (2 boolean + recomposition + range) | bits `b₀,b₁` with value `= 2·b₀ + b₁`, never both set |
+
+> [!NOTE]
+> **Scope — know what you proved.**
+> - **Edwards addition proves closure, not functional correctness.** Inputs on the curve + the gadget constraints imply the output is on the curve. That is necessary but not sufficient for "computes EC addition" — a buggy gadget could emit a *wrong* on-curve point. Full soundness would conclude `(x₃,y₃) = (x₁,y₁) + (x₂,y₂)` (or witness uniqueness); the nonzero-denominator hypotheses are also *assumed* rather than derived from Baby Jubjub's completeness. Both are documented in [`EdwardsAddition.lean`](lean/ZkGadgets/EdwardsAddition.lean) and tracked as future work.
+> - **Lookups and permutation arguments are not yet exercised.** Every Halva circuit proven here has `all_lookups = true` and `all_shuffles = true` stubbed trivially by the extractor — the theorems cover gate and copy constraints only. Lookup/permutation arguments are exactly where real halo2 soundness gets hard; they are the next frontier, not a solved problem.
+
+## Benchmark: ZKGadgetEval
+
+`crates/bench` runs the proof loop over a 17-gadget suite (`benchmark/suite.toml`, tiers 1–3 by difficulty) and reports statistics an eval can be judged on, not just a smoke-test pass count:
+
+```sh
+cargo run -p zkgadget-eval -- --backend claude --budget 5 \
+  --samples 3 --modes build,lsp -o results.json
+```
+
+- **`--samples k`** — resample each gadget *k* times; per gadget the JSON reports the unbiased **pass@k** estimator (`1 − C(n−c,k)/C(n,k)`) for every `k ≤ n` plus a **Wilson 95% interval** on the per-sample prove probability, so run-to-run variance is measured instead of hidden.
+- **`--modes build,lsp`** — the feedback-mode axis (raw `lake build` text vs. structured LSP goal states) runs inside one invocation as an A/B; the summary is broken down per mode.
+- **Negative gadgets** — the suite contains deliberately under-constrained circuits whose spec is *false* (`kind = "negative"`): a 2-bit range check missing a boolean constraint, and a gadget whose only constraint is `x − x = 0` with spec `x = 0`. The loop is graded on **refusing** to prove them. A "proved" negative is a soundness alarm: the run prints it loudly and exits `2`. Without negatives, a suite cannot distinguish "the loop proves true specs" from "the loop proves anything you hand it".
+
+Honest limitations: the suite exercises algebraic gate constraints only (no lookup or permutation arguments — see the scope note above), and samples are independent reruns of the same nondeterministic loop, not seed-controlled.
 
 ## Docker
 

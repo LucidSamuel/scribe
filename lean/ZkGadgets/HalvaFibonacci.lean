@@ -199,3 +199,8 @@ end Fibonacci.Ex1
 
 -- Soundness gate: the proof rests only on the trusted kernel axioms.
 #audit_axioms Fibonacci.Ex1.soundness
+
+-- Model-fidelity note: this file inherits Halva's broken `multiplicative_generator`
+-- predicate (it forces `g = 1`). Harmless here — the proof never loads `isValid` —
+-- see the kernel-checked witness `RangeCheck.multiplicative_generator_forces_one`
+-- in `HalvaRangeCheck.lean`.
