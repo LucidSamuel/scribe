@@ -7,6 +7,10 @@ import Mathlib.FieldTheory.Finite.Basic
 import Mathlib.Tactic.LinearCombination
 import ZkGadgets.Audit
 
+-- Halva's generated preamble below contains intentionally-unused binders
+-- (e.g. `λ col row => 0`); silence the linter for the extracted section ONLY.
+-- It is re-enabled before the human-written Spec — an unused hypothesis there
+-- is the decorative-hypothesis smell, and the warning is the canary for it.
 set_option linter.unusedVariables false
 
 namespace RangeCheck
@@ -115,17 +119,23 @@ def meets_constraints (c: ValidCircuit P P_Prime): Prop :=
   all_shuffles c ∧
   ∀ col row: ℕ, (row < c.n ∧ row ≥ c.usable_rows) → c.1.Instance col row = c.1.InstanceUnassigned col row
 
+-- End of Halva-extracted code: the unused-variable canary is back on for the
+-- Spec and proof below.
+set_option linter.unusedVariables true
+
 /-- Specification: when the range-check selector is enabled at a row, the advice
     value in that row is genuinely in [0, 10) — i.e. its canonical natural
     representative `ZMod.val` is `< 10`.
 
     This is the honest, non-vacuous statement. The earlier form
     `∃ k : Fin 10, (k.val : ZMod P) = advice` is vacuous when `P ≤ 10` (the casts of
-    `0..9` then cover all of `ZMod P`), so it is provable without ever using `hp` —
-    making `hp` decorative. `ZMod.val advice < 10` cannot be proved without `hp`:
-    the bound `P > 10` is exactly what forces `ZMod.val` to agree with the small
-    integer the advice cell encodes. -/
-def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
+    `0..9` then cover all of `ZMod P`), so it is provable without ever using the
+    prime bound. `ZMod.val advice < 10` cannot be proved without `hp : P > 10` —
+    the bound is exactly what forces `ZMod.val` to agree with the small integer
+    the advice cell encodes. The Spec itself carries no such hypothesis: it is a
+    plain property of the circuit, and the bound belongs to the *theorem* that
+    establishes it (where `#audit_uses` checks it is genuinely load-bearing). -/
+def Spec (c: ValidCircuit P P_Prime): Prop :=
   ∀ row : ℕ, c.get_selector 0 row = 1 →
     ZMod.val (c.get_advice 0 row) < 10
 
@@ -133,7 +143,7 @@ def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
     then it satisfies the range-check specification.
     Conditional on Halva's extraction being faithful to halo2 execution semantics. -/
 theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
-    (h: meets_constraints c): Spec c hp := by
+    (h: meets_constraints c): Spec c := by
   haveI : Fact (Nat.Prime P) := ⟨P_Prime⟩
   intro row hsel
   -- The gate forces the advice value to be one of the field elements 0..9.

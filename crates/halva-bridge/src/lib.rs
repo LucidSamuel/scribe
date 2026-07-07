@@ -244,6 +244,7 @@ pub fn scaffold_soundness(halva: &HalvaFile, config: &SpecConfig) -> String {
     }
     let extra_import_refs: Vec<&str> = extra_imports.iter().map(String::as_str).collect();
     let mut out = write_prefix_with_header(&lines, halva.end_line, &extra_import_refs);
+    push_linter_reenable(&mut out, &lines[..halva.end_line]);
 
     // Append the Spec definition and soundness theorem.
     out.push_str(&format!(
@@ -273,6 +274,25 @@ theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): Spec c :
 
 /// The import that provides the `#audit_axioms` command.
 const AUDIT_IMPORT: &str = "import ZkGadgets.Audit";
+
+/// Halva's emitted output silences the unused-variable linter file-wide for its
+/// generated preamble (which contains intentionally-unused binders like
+/// `λ col row => 0`). If the extracted prefix did that, re-enable the linter at
+/// the boundary where human-written content begins: an unused hypothesis in a
+/// Spec or proof is the decorative-hypothesis smell, and the warning is the
+/// canary for it.
+fn push_linter_reenable(out: &mut String, halva_prefix: &[&str]) {
+    let suppressed = halva_prefix
+        .iter()
+        .any(|line| line.trim() == "set_option linter.unusedVariables false");
+    if suppressed {
+        out.push_str(
+            "\n-- End of Halva-extracted code: the unused-variable canary is back on for\n\
+             -- the human-written Spec and proof below.\n\
+             set_option linter.unusedVariables true\n",
+        );
+    }
+}
 
 /// Append an `#audit_axioms` gate for `<namespace>.<theorem>`. The gate makes
 /// `lake build` fail unless the proof rests only on the trusted kernel axioms,
@@ -331,6 +351,7 @@ pub fn scaffold_raw(halva: &HalvaFile, snippet: &str, audit_gate: bool) -> Strin
         header.push(AUDIT_IMPORT);
     }
     let mut out = write_prefix_with_header(&halva_lines, halva.end_line, &header);
+    push_linter_reenable(&mut out, &halva_lines[..halva.end_line]);
 
     out.push('\n');
     write_lines(&mut out, &snippet_lines[body_start..]);
@@ -890,6 +911,34 @@ private theorem helper : True := by
         assert!(!combined.contains("#audit_axioms"));
         assert!(!combined.contains("import ZkGadgets.Audit"));
         assert!(combined.ends_with("end RangeCheck\n"));
+    }
+
+    #[test]
+    fn scaffolds_reenable_unused_variable_linter_before_human_content() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let reenable = "set_option linter.unusedVariables true";
+
+        // Structured mode: re-enable sits after the extracted prefix, before Spec.
+        let config = SpecConfig {
+            spec_body: "True".to_string(),
+            extra_imports: vec![],
+            audit_gate: true,
+        };
+        let combined = scaffold_soundness(&halva, &config);
+        let re_pos = combined.find(reenable).expect("re-enable present");
+        assert!(combined.find("set_option linter.unusedVariables false").unwrap() < re_pos);
+        assert!(re_pos < combined.find("def Spec").unwrap());
+
+        // Raw mode: same placement, before the snippet body.
+        let combined = scaffold_raw(&halva, "def MySpec := True\n", true);
+        let re_pos = combined.find(reenable).expect("re-enable present");
+        assert!(re_pos < combined.find("def MySpec").unwrap());
+
+        // No suppression in the extracted prefix → nothing to re-enable.
+        let clean = SAMPLE_HALVA.replace("set_option linter.unusedVariables false\n", "");
+        let halva = parse_halva_output(&clean).unwrap();
+        let combined = scaffold_raw(&halva, "def MySpec := True\n", true);
+        assert!(!combined.contains(reenable));
     }
 
     #[test]

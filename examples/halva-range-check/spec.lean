@@ -9,9 +9,11 @@ import Mathlib.Tactic.LinearCombination
 
     This is the honest, non-vacuous statement. The form
     `∃ k : Fin 10, (k.val : ZMod P) = advice` is vacuous when `P ≤ 10` (the casts of
-    `0..9` then cover all of `ZMod P`), so it is provable without ever using `hp`.
-    `ZMod.val advice < 10` cannot be proved without `hp : P > 10`. -/
-def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
+    `0..9` then cover all of `ZMod P`), so it is provable without ever using the
+    prime bound. `ZMod.val advice < 10` cannot be proved without `hp : P > 10`.
+    The Spec itself carries no such hypothesis — the bound belongs to the theorem
+    that establishes it. -/
+def Spec (c: ValidCircuit P P_Prime): Prop :=
   ∀ row : ℕ, c.get_selector 0 row = 1 →
     ZMod.val (c.get_advice 0 row) < 10
 
@@ -19,5 +21,5 @@ def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
     then it satisfies the range-check specification.
     Conditional on Halva's extraction being faithful to halo2 execution semantics. -/
 theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
-    (h: meets_constraints c): Spec c hp := by
+    (h: meets_constraints c): Spec c := by
   sorry
