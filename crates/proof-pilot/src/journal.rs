@@ -35,7 +35,7 @@ pub struct SessionJournal {
     pub theorem_statement: String,
     /// Absolute or relative path to the Lean file.
     pub lean_file: String,
-    /// Human-readable name of the backend used (e.g. `"claude-cli (claude-sonnet-4-20250514)"`).
+    /// Human-readable name of the backend used (e.g. `"claude-cli (claude-sonnet-5)"`).
     pub backend: String,
     /// Contents of `lean-toolchain` in the lake directory, or empty string if absent.
     pub toolchain: String,

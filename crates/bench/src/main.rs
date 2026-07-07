@@ -719,11 +719,11 @@ fn build_backend(
 ) -> Box<dyn Backend> {
     match name {
         "claude" | "claude-cli" => {
-            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+            let m = model.unwrap_or_else(|| proof_pilot::backend::DEFAULT_ANTHROPIC_MODEL.into());
             Box::new(ClaudeCli::new(m))
         }
         "anthropic" => {
-            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+            let m = model.unwrap_or_else(|| proof_pilot::backend::DEFAULT_ANTHROPIC_MODEL.into());
             let key = resolve_api_key(api_key, "ANTHROPIC_API_KEY").unwrap_or_else(|| {
                 eprintln!("anthropic backend requires --api-key or ANTHROPIC_API_KEY");
                 std::process::exit(1);
