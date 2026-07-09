@@ -57,7 +57,11 @@ pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
     out.push_str("import ZkGadgets.Field\n");
     out.push_str("import ZkGadgets.Audit\n");
     out.push_str("import Mathlib.Data.ZMod.Basic\n");
-    out.push_str("import Mathlib.Algebra.Field.ZMod\n\n");
+    out.push_str("import Mathlib.Algebra.Field.ZMod\n");
+    // The tactics the system prompt teaches (`linear_combination`, `ring`) must
+    // be importable, or every model proof fails with "unknown tactic".
+    out.push_str("import Mathlib.Tactic.Ring\n");
+    out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
     out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
@@ -220,7 +224,11 @@ pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
     out.push_str("import ZkGadgets.Field\n");
     out.push_str("import ZkGadgets.Audit\n");
     out.push_str("import Mathlib.Data.ZMod.Basic\n");
-    out.push_str("import Mathlib.Algebra.Field.ZMod\n\n");
+    out.push_str("import Mathlib.Algebra.Field.ZMod\n");
+    // The tactics the system prompt teaches (`linear_combination`, `ring`) must
+    // be importable, or every model proof fails with "unknown tactic".
+    out.push_str("import Mathlib.Tactic.Ring\n");
+    out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
     out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
