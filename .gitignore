@@ -6,6 +6,10 @@ lean/build/
 lean/lake-packages/
 lean/.lake/
 
+# ZKGadgetEval run artifacts (scaffolds regenerated per run, transcripts, JSON)
+lean/ZkGadgets/Bench/
+benchmark/results/
+
 # Editor
 .DS_Store
 *.swp
