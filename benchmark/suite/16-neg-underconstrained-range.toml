@@ -15,8 +15,13 @@
 #
 # A run that "proves" this spec is a soundness alarm: either the harness accepted
 # a non-proof, or the scaffold does not state what this file says it states.
+#
+# The gadget `name` is deliberately NEUTRAL: it becomes the theorem name in the
+# scaffold the model sees, and a name like "neg-underconstrained-..." would leak
+# the expected answer (the first live run showed the model citing the filename
+# as evidence). Only this manifest-side file marks it negative.
 
-name = "neg-underconstrained-range-2bit"
+name = "range-check-2bit"
 modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
 soundness_spec = "ZMod.val x < 4"
 
