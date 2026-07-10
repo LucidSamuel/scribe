@@ -230,6 +230,8 @@ cargo run -p zkgadget-eval -- --backend claude --budget 5 \
 
 Honest limitations: the suite exercises algebraic gate constraints only (no lookup or permutation arguments — see the scope note above), and samples are independent reruns of the same nondeterministic loop, not seed-controlled.
 
+First full-suite results (claude-sonnet-5, budget 5, build vs. lsp A/B): **build 15/15, lsp 14/15, negatives refused 4/4, zero alarms** — see [`benchmark/RESULTS.md`](benchmark/RESULTS.md) for the per-gadget table and caveats.
+
 ## Docker
 
 The `ghcr.io/lucidsamuel/scribe` image is built on every push to `main` and on version tags (`.github/workflows/docker.yml`). It bundles:
