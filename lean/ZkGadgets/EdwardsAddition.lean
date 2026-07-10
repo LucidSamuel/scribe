@@ -154,3 +154,9 @@ theorem edwards_addition_sound
 
 -- Soundness gate: this proof rests only on the trusted kernel axioms.
 #audit_axioms edwards_addition_sound
+-- Verdict-engine probes (C2/C3) over ZMod 7 (where a = 168700 ≡ 0 and d = 168696 ≡ 3):
+-- (0, 0) is off-curve (0 ≠ 1), refuting the conclusion; adding the identity (0, 1)
+-- to itself satisfies every constraint with output (0, 1).
+#audit_falsifiable edwards_addition_sound (p := 7) (x3 := 0) (y3 := 0)
+#audit_satisfiable edwards_addition_sound (p := 7)
+  (x1 := 0) (y1 := 1) (x2 := 0) (y2 := 1) (x3 := 0) (y3 := 1)

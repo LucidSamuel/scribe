@@ -26,3 +26,7 @@ theorem nonzero_check_sound
 
 -- Soundness gate: this proof rests only on the trusted kernel axioms.
 #audit_axioms nonzero_check_sound
+-- Verdict-engine probes (C2/C3): x = 0 refutes the conclusion; 2 · 3 = 1 in ZMod 5
+-- witnesses a satisfiable inverse constraint.
+#audit_falsifiable nonzero_check_sound (p := 5) (x := 0)
+#audit_satisfiable nonzero_check_sound (p := 5) (x := 2) (x_inv := 3)

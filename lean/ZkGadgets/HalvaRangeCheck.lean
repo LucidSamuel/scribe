@@ -195,7 +195,12 @@ theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
 
 /-- Non-vacuity witness: the bound `ZMod.val advice < 10` is a genuine restriction.
     In `ZMod 11` (prime, > 10) the element `10` refutes it, so the spec is not
-    `True` in disguise and the `P > 10` hypothesis is load-bearing. -/
+    `True` in disguise and the `P > 10` hypothesis is load-bearing.
+
+    This is hand-written rather than an `#audit_falsifiable` probe: the C2/C3
+    commands need decidable, enumerable instantiations, and a circuit-level
+    theorem quantifies over `ValidCircuit` (function-typed advice/fixed/instance
+    columns), which no finite probe can enumerate. -/
 example : ¬ ((10 : ZMod 11).val < 10) := by decide
 
 
