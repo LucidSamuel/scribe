@@ -95,6 +95,14 @@ mod verify_cmd {
         #[arg(long)]
         pub no_prove: bool,
 
+        /// Skip the `#audit_axioms` gate and its `ZkGadgets.Audit` import.
+        /// Use when the target lake dir is not scribe's own `lean/` project
+        /// (the gate's command is defined by scribe's ZkGadgets library).
+        /// Without the gate, an unproven scaffold builds with a warning
+        /// instead of failing, so prefer keeping it on.
+        #[arg(long)]
+        pub no_audit_gate: bool,
+
         /// Lake project directory (default: $LAKE_DIR env var, else `lean`).
         #[arg(long, value_name = "DIR")]
         pub lake_dir: Option<String>,
@@ -386,6 +394,40 @@ mod tests {
         .expect("should parse");
         if let Commands::Verify(args) = cli.command {
             assert!(args.no_prove);
+        } else {
+            panic!("expected Verify");
+        }
+    }
+
+    #[test]
+    fn verify_audit_gate_defaults_on_and_can_be_disabled() {
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "verify",
+            "--halva-output",
+            "out.lean",
+            "--spec",
+            "True",
+        ])
+        .expect("should parse");
+        if let Commands::Verify(args) = cli.command {
+            assert!(!args.no_audit_gate);
+        } else {
+            panic!("expected Verify");
+        }
+
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "verify",
+            "--halva-output",
+            "out.lean",
+            "--spec",
+            "True",
+            "--no-audit-gate",
+        ])
+        .expect("should parse");
+        if let Commands::Verify(args) = cli.command {
+            assert!(args.no_audit_gate);
         } else {
             panic!("expected Verify");
         }

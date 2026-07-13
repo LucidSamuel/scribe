@@ -30,3 +30,10 @@ theorem poseidon_sbox_sound
   have hy : y = r * x := by linear_combination h_output
   rw [hy, hr, hq]
   ring
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms poseidon_sbox_sound
+-- Verdict-engine probes (C2/C3): y = 1 with x = 0 refutes the conclusion; the
+-- squaring chain at x = 2 in ZMod 7 (q = 4, r = 2, y = 4) satisfies every constraint.
+#audit_falsifiable poseidon_sbox_sound (p := 7) (x := 0) (y := 1)
+#audit_satisfiable poseidon_sbox_sound (p := 7) (x := 2) (q := 4) (r := 2) (y := 4)

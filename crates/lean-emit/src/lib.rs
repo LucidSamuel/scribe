@@ -55,8 +55,13 @@ pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
 
     // -- imports
     out.push_str("import ZkGadgets.Field\n");
+    out.push_str("import ZkGadgets.Audit\n");
     out.push_str("import Mathlib.Data.ZMod.Basic\n");
-    out.push_str("import Mathlib.Algebra.Field.ZMod\n\n");
+    out.push_str("import Mathlib.Algebra.Field.ZMod\n");
+    // The tactics the system prompt teaches (`linear_combination`, `ring`) must
+    // be importable, or every model proof fails with "unknown tactic".
+    out.push_str("import Mathlib.Tactic.Ring\n");
+    out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
     out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
@@ -127,7 +132,20 @@ pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
     }
     out.push_str("  sorry\n");
 
+    // -- audit gate: the main theorem (and, transitively, every helper lemma it
+    // uses) must rest only on the trusted kernel axioms for the build to pass.
+    out.push_str(&audit_gate(&theorem_name));
+
     Ok(out)
+}
+
+/// Render an `#audit_axioms` gate line for a theorem. Placed after the proof so
+/// `lake build` fails on an unproven or axiom-tainted scaffold rather than
+/// merely warning.
+fn audit_gate(theorem_name: &str) -> String {
+    format!(
+        "\n#audit_axioms {theorem_name}  -- proof must rest only on the trusted kernel axioms\n"
+    )
 }
 
 /// Rearrange a constraint `sum_of_terms = 0` into a more useful equality.
@@ -204,8 +222,13 @@ pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
 
     // -- imports
     out.push_str("import ZkGadgets.Field\n");
+    out.push_str("import ZkGadgets.Audit\n");
     out.push_str("import Mathlib.Data.ZMod.Basic\n");
-    out.push_str("import Mathlib.Algebra.Field.ZMod\n\n");
+    out.push_str("import Mathlib.Algebra.Field.ZMod\n");
+    // The tactics the system prompt teaches (`linear_combination`, `ring`) must
+    // be importable, or every model proof fails with "unknown tactic".
+    out.push_str("import Mathlib.Tactic.Ring\n");
+    out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
     out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
@@ -250,6 +273,9 @@ pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
     };
     out.push_str(&conclusion);
     out.push_str(" := by\n  sorry\n");
+
+    // -- audit gate: proof must rest only on the trusted kernel axioms
+    out.push_str(&audit_gate(&theorem_name));
 
     Ok(out)
 }
@@ -501,8 +527,14 @@ mod tests {
         assert!(out.contains("- x = 0"));
         // ends with sorry
         assert!(out.contains("sorry"));
-        // soundness spec in conclusion
-        assert!(out.contains("∃ k : Fin 256"));
+        // non-vacuous soundness spec in conclusion, with its load-bearing bound
+        assert!(out.contains("ZMod.val x < 256"));
+        assert!(out.contains("(hp : p > 256)"));
+        // audit gate on the theorem, with its import
+        assert!(out.contains("import ZkGadgets.Audit"));
+        assert!(out.trim_end().ends_with(
+            "#audit_axioms range_check_8bit_sound  -- proof must rest only on the trusted kernel axioms"
+        ));
     }
 
     #[test]
@@ -683,6 +715,9 @@ mod tests {
         assert!(out.contains("q = x * x"));
         assert!(out.contains("r = q * q"));
         assert!(out.contains("y = r * x"));
+        // One audit gate, on the main theorem (helpers are covered transitively).
+        assert_eq!(out.matches("#audit_axioms").count(), 1);
+        assert!(out.contains("#audit_axioms poseidon_sbox_sound"));
     }
 
     #[test]

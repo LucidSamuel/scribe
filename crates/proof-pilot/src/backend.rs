@@ -300,6 +300,11 @@ pub fn require_api_key(explicit: Option<&str>, env_var: &str, backend: &str) -> 
 /// `leanstral-local`, `openai-compat`.
 /// Exits the process with a diagnostic message if the name is unknown or required
 /// parameters (key, URL) are missing.
+/// Default model for the `claude`/`anthropic` backends when `--model` is not
+/// given. Kept in one place because retired models fail at request time (e.g.
+/// claude-sonnet-4-20250514 was retired 2026-06-15 and broke every default run).
+pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-5";
+
 pub fn make_backend(
     name: &str,
     model: Option<String>,
@@ -308,11 +313,11 @@ pub fn make_backend(
 ) -> Box<dyn Backend> {
     match name {
         "claude" | "claude-cli" => {
-            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+            let m = model.unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.into());
             Box::new(ClaudeCli::new(m))
         }
         "anthropic" => {
-            let m = model.unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+            let m = model.unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.into());
             let key = require_api_key(api_key.as_deref(), "ANTHROPIC_API_KEY", "anthropic");
             let mut b = AnthropicApi::new(m, key);
             if let Some(url) = base_url {
@@ -373,19 +378,19 @@ mod tests {
 
     #[test]
     fn claude_cli_name_includes_model() {
-        let b = ClaudeCli::new("claude-sonnet-4-20250514".into());
-        assert_eq!(b.name(), "claude-cli (claude-sonnet-4-20250514)");
+        let b = ClaudeCli::new("claude-sonnet-5".into());
+        assert_eq!(b.name(), "claude-cli (claude-sonnet-5)");
     }
 
     #[test]
     fn anthropic_name_includes_model() {
-        let b = AnthropicApi::new("claude-sonnet-4-20250514".into(), "sk-test".into());
-        assert_eq!(b.name(), "anthropic (claude-sonnet-4-20250514)");
+        let b = AnthropicApi::new("claude-sonnet-5".into(), "sk-test".into());
+        assert_eq!(b.name(), "anthropic (claude-sonnet-5)");
     }
 
     #[test]
     fn anthropic_custom_base_url_shown_in_name() {
-        let b = AnthropicApi::new("claude-sonnet-4-20250514".into(), "sk-test".into())
+        let b = AnthropicApi::new("claude-sonnet-5".into(), "sk-test".into())
             .with_base_url("https://custom.example.com".into());
         assert!(b.name().contains("custom.example.com"));
     }

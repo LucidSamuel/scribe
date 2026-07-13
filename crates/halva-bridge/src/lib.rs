@@ -123,6 +123,89 @@ fn declaration_name<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     rest.split_whitespace().next()
 }
 
+/// Truncate a captured declaration name at the first non-identifier character,
+/// so `soundness(c:` (no space before the binder) still yields `soundness`.
+fn trim_to_ident(name: &str) -> &str {
+    let end = name
+        .find(|c: char| !c.is_alphanumeric() && !matches!(c, '_' | '\'' | '.'))
+        .unwrap_or(name.len());
+    &name[..end]
+}
+
+/// The lines of a snippet that are code: whole-line `--` comments and lines
+/// inside `/- ... -/` blocks are dropped, so commented-out declarations are
+/// neither gated nor mistaken for user-supplied gates.
+fn code_lines<'a>(lines: &[&'a str]) -> Vec<&'a str> {
+    let mut depth = 0usize;
+    let mut out = Vec::new();
+    for line in lines {
+        let trimmed = line.trim_start();
+        if depth > 0 || trimmed.starts_with("/-") {
+            update_block_comment_depth(line, &mut depth);
+            continue;
+        }
+        if trimmed.starts_with("--") {
+            continue;
+        }
+        out.push(*line);
+    }
+    out
+}
+
+/// The (unqualified) declaration a user-written `#audit_axioms` line refers to,
+/// e.g. `RangeCheck.soundness` → `soundness`.
+fn user_gate_name(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix("#audit_axioms")?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let name = trim_to_ident(rest.split_whitespace().next()?);
+    Some(name.rsplit('.').next().unwrap_or(name))
+}
+
+/// The name declared by a gateable `theorem`/`lemma` line, seeing through
+/// leading `@[...]` attributes and the `protected`/`noncomputable` modifiers.
+/// `private` declarations are skipped: their mangled global names are not
+/// addressable from a gate after `end <namespace>`, and as helpers they are
+/// covered transitively when a gated theorem uses them.
+fn gateable_decl_name(line: &str) -> Option<&str> {
+    let mut rest = line.trim_start();
+    loop {
+        if let Some(after) = rest.strip_prefix("@[") {
+            rest = after.split_once(']')?.1.trim_start();
+            continue;
+        }
+        if rest
+            .strip_prefix("private")
+            .is_some_and(|r| r.starts_with(char::is_whitespace))
+        {
+            return None;
+        }
+        let mut stripped = false;
+        for modifier in ["protected", "noncomputable"] {
+            if let Some(after) = rest.strip_prefix(modifier) {
+                if after.starts_with(char::is_whitespace) {
+                    rest = after.trim_start();
+                    stripped = true;
+                }
+            }
+        }
+        if !stripped {
+            break;
+        }
+    }
+    let name_part = ["theorem", "lemma"].iter().find_map(|kw| {
+        let after = rest.strip_prefix(kw)?;
+        if after.starts_with(char::is_whitespace) {
+            Some(after.trim_start())
+        } else {
+            None
+        }
+    })?;
+    let name = trim_to_ident(name_part.split_whitespace().next()?);
+    (!name.is_empty()).then_some(name)
+}
+
 fn is_meets_constraints_decl(line: &str) -> bool {
     let Some(rest) = line.trim().strip_prefix("def") else {
         return false;
@@ -137,18 +220,31 @@ pub struct SpecConfig {
     pub spec_body: String,
     /// Optional extra imports to add at the top.
     pub extra_imports: Vec<String>,
+    /// Emit an `#audit_axioms` gate (and its `ZkGadgets.Audit` import). On by
+    /// default; disable when the scaffold targets a Lake project that does not
+    /// provide the ZkGadgets library.
+    pub audit_gate: bool,
 }
 
 /// Generate a combined Lean file: Halva output + Spec + soundness theorem with `sorry`.
 pub fn scaffold_soundness(halva: &HalvaFile, config: &SpecConfig) -> String {
     let lines: Vec<&str> = halva.content.lines().collect();
-    let extra_imports: Vec<String> = config
+    let mut extra_imports: Vec<String> = config
         .extra_imports
         .iter()
         .map(|import| normalize_import(import))
         .collect();
+    // The scaffold ends with an `#audit_axioms` gate, so the audit module must be
+    // importable (the default lake dir is scribe's own `lean/` project).
+    if config.audit_gate {
+        let audit_import = String::from(AUDIT_IMPORT);
+        if !extra_imports.contains(&audit_import) {
+            extra_imports.push(audit_import);
+        }
+    }
     let extra_import_refs: Vec<&str> = extra_imports.iter().map(String::as_str).collect();
     let mut out = write_prefix_with_header(&lines, halva.end_line, &extra_import_refs);
+    push_linter_reenable(&mut out, &lines[..halva.end_line]);
 
     // Append the Spec definition and soundness theorem.
     out.push_str(&format!(
@@ -169,15 +265,54 @@ theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): Spec c :
     ));
 
     write_lines(&mut out, &lines[halva.end_line..]);
+    if config.audit_gate {
+        push_audit_gate(&mut out, &halva.namespace, "soundness");
+    }
 
     out
+}
+
+/// The import that provides the `#audit_axioms` command.
+const AUDIT_IMPORT: &str = "import ZkGadgets.Audit";
+
+/// Halva's emitted output silences the unused-variable linter file-wide for its
+/// generated preamble (which contains intentionally-unused binders like
+/// `λ col row => 0`). If the extracted prefix did that, re-enable the linter at
+/// the boundary where human-written content begins: an unused hypothesis in a
+/// Spec or proof is the decorative-hypothesis smell, and the warning is the
+/// canary for it.
+fn push_linter_reenable(out: &mut String, halva_prefix: &[&str]) {
+    let suppressed = halva_prefix
+        .iter()
+        .any(|line| line.trim() == "set_option linter.unusedVariables false");
+    if suppressed {
+        out.push_str(
+            "\n-- End of Halva-extracted code: the unused-variable canary is back on for\n\
+             -- the human-written Spec and proof below.\n\
+             set_option linter.unusedVariables true\n",
+        );
+    }
+}
+
+/// Append an `#audit_axioms` gate for `<namespace>.<theorem>`. The gate makes
+/// `lake build` fail unless the proof rests only on the trusted kernel axioms,
+/// so an unproven scaffold is red (not merely a warning) and a completed proof
+/// is accepted only when its transitive dependencies are clean.
+fn push_audit_gate(out: &mut String, namespace: &str, theorem: &str) {
+    out.push_str(&format!(
+        "\n#audit_axioms {namespace}.{theorem}  -- proof must rest only on the trusted kernel axioms\n"
+    ));
 }
 
 /// Generate a combined Lean file from a raw spec snippet.
 ///
 /// Leading imports, comments, and blank lines are merged into the file header.
 /// The remaining body is inserted before the selected namespace's matching `end`.
-pub fn scaffold_raw(halva: &HalvaFile, snippet: &str) -> String {
+/// With `audit_gate` set, every `theorem`/`lemma` the snippet declares gets an
+/// `#audit_axioms` gate after the namespace close (unless the user supplied
+/// their own gate for it), and `import ZkGadgets.Audit` is merged in whenever
+/// any gate is present. With it unset, the snippet passes through untouched.
+pub fn scaffold_raw(halva: &HalvaFile, snippet: &str, audit_gate: bool) -> String {
     let halva_lines: Vec<&str> = halva.content.lines().collect();
 
     let snippet_lines: Vec<&str> = snippet.lines().collect();
@@ -186,12 +321,45 @@ pub fn scaffold_raw(halva: &HalvaFile, snippet: &str) -> String {
         Some(end) => (&snippet_lines[..end], end),
         None => (&[][..], 0),
     };
-    let mut out = write_prefix_with_header(&halva_lines, halva.end_line, header);
+
+    // Gate each theorem/lemma the snippet declares. A declaration the user has
+    // already gated with their own `#audit_axioms <name>` line is skipped; the
+    // scan ignores comments so a commented-out declaration is never gated and a
+    // prose mention of `#audit_axioms` never disables gating.
+    let code = code_lines(&snippet_lines[body_start..]);
+    let user_gated: Vec<&str> = if audit_gate {
+        code.iter()
+            .filter_map(|line| user_gate_name(line))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let theorems: Vec<&str> = if audit_gate {
+        code.iter()
+            .filter_map(|line| gateable_decl_name(line))
+            .filter(|name| !user_gated.contains(name))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Any gate in the output — generated or user-supplied — needs the import.
+    let mut header: Vec<&str> = header.to_vec();
+    if (!theorems.is_empty() || !user_gated.is_empty())
+        && !header.iter().any(|line| line.trim() == AUDIT_IMPORT)
+    {
+        header.push(AUDIT_IMPORT);
+    }
+    let mut out = write_prefix_with_header(&halva_lines, halva.end_line, &header);
+    push_linter_reenable(&mut out, &halva_lines[..halva.end_line]);
 
     out.push('\n');
     write_lines(&mut out, &snippet_lines[body_start..]);
     out.push('\n');
     write_lines(&mut out, &halva_lines[halva.end_line..]);
+    for theorem in theorems {
+        push_audit_gate(&mut out, &halva.namespace, theorem);
+    }
     out
 }
 
@@ -404,6 +572,7 @@ def trailing := True
                          ∃ k : Fin 10, (k.val : ZMod P) = c.get_advice 0 row"
                 .to_string(),
             extra_imports: vec![],
+            audit_gate: true,
         };
         let combined = scaffold_soundness(&halva, &config);
 
@@ -417,8 +586,12 @@ def trailing := True
         assert!(combined.contains("sorry"));
         // Should still close the namespace
         assert!(combined.contains("end RangeCheck"));
-        // The namespace should appear exactly once at the end
-        assert!(combined.ends_with("end RangeCheck\n"));
+        // The audit gate follows the namespace close, with its import merged.
+        assert!(combined.contains("import ZkGadgets.Audit"));
+        assert!(combined.ends_with("#audit_axioms RangeCheck.soundness  -- proof must rest only on the trusted kernel axioms\n"));
+        let gate_pos = combined.find("#audit_axioms").unwrap();
+        let end_pos = combined.find("end RangeCheck").unwrap();
+        assert!(gate_pos > end_pos);
     }
 
     #[test]
@@ -427,6 +600,7 @@ def trailing := True
         let config = SpecConfig {
             spec_body: "True".to_string(),
             extra_imports: vec!["import Mathlib.Data.Fin.Basic".to_string()],
+            audit_gate: true,
         };
         let combined = scaffold_soundness(&halva, &config);
         assert!(combined.contains("import Mathlib.Data.Fin.Basic"));
@@ -443,9 +617,11 @@ def trailing := True
         let config = SpecConfig {
             spec_body: "True".to_string(),
             extra_imports: vec!["Mathlib.Data.Fin.Basic".to_string()],
+            audit_gate: true,
         };
         let combined = scaffold_soundness(&halva, &config);
-        assert!(combined.starts_with("import Mathlib.Data.Fin.Basic\nnamespace Foo\n"));
+        assert!(combined
+            .starts_with("import Mathlib.Data.Fin.Basic\nimport ZkGadgets.Audit\nnamespace Foo\n"));
     }
 
     #[test]
@@ -461,10 +637,11 @@ end Foo
         let config = SpecConfig {
             spec_body: "True".to_string(),
             extra_imports: vec!["Mathlib.Data.Fin.Basic".to_string()],
+            audit_gate: true,
         };
         let combined = scaffold_soundness(&halva, &config);
         assert!(combined.starts_with(
-            "/-\nCopyright header.\n-/\nimport Mathlib.Data.Fin.Basic\nnamespace Foo\n"
+            "/-\nCopyright header.\n-/\nimport Mathlib.Data.Fin.Basic\nimport ZkGadgets.Audit\nnamespace Foo\n"
         ));
     }
 
@@ -477,7 +654,7 @@ end Foo
 def trailing := True
 "#;
         let halva = parse_halva_output(input).unwrap();
-        let combined = scaffold_raw(&halva, "def Spec := True");
+        let combined = scaffold_raw(&halva, "def Spec := True", true);
         assert!(combined.contains("end Foo\n\ndef trailing := True\n"));
     }
 
@@ -488,10 +665,15 @@ def trailing := True
 
 theorem my_thm (c: ValidCircuit P P_Prime) (h: meets_constraints c): MySpec c := by
   sorry"#;
-        let combined = scaffold_raw(&halva, snippet);
+        let combined = scaffold_raw(&halva, snippet, true);
         assert!(combined.contains("def MySpec"));
         assert!(combined.contains("theorem my_thm"));
-        assert!(combined.ends_with("end RangeCheck\n"));
+        // The snippet's theorem gets an audit gate after the namespace close.
+        assert!(combined.contains("import ZkGadgets.Audit"));
+        assert!(combined.contains("end RangeCheck\n"));
+        assert!(combined.trim_end().ends_with(
+            "#audit_axioms RangeCheck.my_thm  -- proof must rest only on the trusted kernel axioms"
+        ));
     }
 
     #[test]
@@ -505,7 +687,7 @@ def MySpec (c: ValidCircuit P P_Prime): Prop := True
 
 theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): MySpec c := by
   sorry"#;
-        let combined = scaffold_raw(&halva, snippet);
+        let combined = scaffold_raw(&halva, snippet, true);
         // New imports should be merged into header
         assert!(combined.contains("import Mathlib.Algebra.Field.ZMod"));
         assert!(combined.contains("import Mathlib.Tactic.LinearCombination"));
@@ -514,7 +696,8 @@ theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): MySpec c
         assert_eq!(count, 1);
         // Body should still contain the spec
         assert!(combined.contains("def MySpec"));
-        assert!(combined.ends_with("end RangeCheck\n"));
+        assert!(combined.contains("end RangeCheck\n"));
+        assert!(combined.contains("#audit_axioms RangeCheck.soundness"));
         // Imports should appear before the namespace
         let import_pos = combined.find("import Mathlib.Algebra.Field.ZMod").unwrap();
         let ns_pos = combined.find("namespace RangeCheck").unwrap();
@@ -532,7 +715,7 @@ import Mathlib.Tactic
 
 def MySpec := True
 "#;
-        let combined = scaffold_raw(&halva, snippet);
+        let combined = scaffold_raw(&halva, snippet, true);
         let ns_pos = combined.find("namespace RangeCheck").unwrap();
         assert!(combined.find("import Mathlib.Data.Fin.Basic").unwrap() < ns_pos);
         assert!(combined.find("import Mathlib.Tactic").unwrap() < ns_pos);
@@ -578,19 +761,184 @@ def MySpec := True
     #[test]
     fn scaffold_raw_on_fibonacci_preserves_copies_and_closes_dotted_namespace() {
         let halva = parse_halva_output(FIB_EXTRACTED).unwrap();
-        let combined = scaffold_raw(&halva, FIB_SPEC);
+        let combined = scaffold_raw(&halva, FIB_SPEC, true);
         // Spec + theorem spliced in, copy chain preserved, namespace closed once.
         assert!(combined.contains("def Spec"));
         assert!(combined.contains("theorem soundness"));
         assert!(combined.contains("def copy_16"));
-        assert!(combined.ends_with("end Fibonacci.Ex1\n"));
+        assert!(combined.contains("end Fibonacci.Ex1\n"));
         assert_eq!(combined.matches("end Fibonacci.Ex1").count(), 1);
+        // Gate uses the full dotted namespace.
+        assert!(combined.contains("#audit_axioms Fibonacci.Ex1.soundness"));
         // Spec import merged into the header, ahead of the namespace.
         let import_pos = combined
             .find("import Mathlib.Tactic.LinearCombination")
             .unwrap();
         let ns_pos = combined.find("namespace Fibonacci.Ex1").unwrap();
         assert!(import_pos < ns_pos);
+    }
+
+    #[test]
+    fn scaffold_raw_respects_user_supplied_audit_gates() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let snippet = r#"import ZkGadgets.Audit
+
+theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): True := by
+  trivial
+
+#audit_axioms RangeCheck.soundness
+"#;
+        let combined = scaffold_raw(&halva, snippet, true);
+        // The user's own gate is kept and no duplicate is appended.
+        assert_eq!(combined.matches("#audit_axioms").count(), 1);
+        assert_eq!(combined.matches("import ZkGadgets.Audit").count(), 1);
+    }
+
+    #[test]
+    fn scaffold_raw_gates_ungated_theorems_next_to_user_gated_ones() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let snippet = r#"import ZkGadgets.Audit
+
+theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): True := by
+  trivial
+
+theorem completeness (c: ValidCircuit P P_Prime): True := by
+  trivial
+
+#audit_axioms RangeCheck.soundness
+"#;
+        let combined = scaffold_raw(&halva, snippet, true);
+        // The user's gate is kept; the ungated second theorem still gets one.
+        assert_eq!(
+            combined
+                .matches("#audit_axioms RangeCheck.soundness")
+                .count(),
+            1
+        );
+        assert!(combined.contains("#audit_axioms RangeCheck.completeness"));
+        assert_eq!(combined.matches("import ZkGadgets.Audit").count(), 1);
+    }
+
+    #[test]
+    fn scaffold_raw_prose_mention_of_gate_does_not_disable_gating() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let snippet = r#"-- See #audit_axioms in Audit.lean for the trust story.
+def MySpec := True
+
+theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): MySpec := by
+  sorry
+"#;
+        let combined = scaffold_raw(&halva, snippet, true);
+        assert!(combined.contains("#audit_axioms RangeCheck.soundness"));
+    }
+
+    #[test]
+    fn scaffold_raw_skips_commented_out_declarations() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let snippet = r#"/-
+theorem old_soundness (c: ValidCircuit P P_Prime): True := by
+  sorry
+-/
+-- theorem sketch_soundness : True := by sorry
+def MySpec := True
+"#;
+        let combined = scaffold_raw(&halva, snippet, true);
+        // No phantom gates for declarations that do not exist.
+        assert!(!combined.contains("#audit_axioms"));
+        assert!(!combined.contains("import ZkGadgets.Audit"));
+    }
+
+    #[test]
+    fn scaffold_raw_gates_lemma_and_attributed_theorem_but_not_private() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let snippet = r#"lemma soundness (c: ValidCircuit P P_Prime): True := by
+  sorry
+
+@[simp] theorem normalized (c: ValidCircuit P P_Prime): True := by
+  sorry
+
+private theorem helper : True := by
+  sorry
+"#;
+        let combined = scaffold_raw(&halva, snippet, true);
+        assert!(combined.contains("#audit_axioms RangeCheck.soundness"));
+        assert!(combined.contains("#audit_axioms RangeCheck.normalized"));
+        assert!(!combined.contains("#audit_axioms RangeCheck.helper"));
+    }
+
+    #[test]
+    fn scaffold_raw_adds_import_for_user_supplied_gate() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        // User wrote a gate but forgot the import that provides the command.
+        let snippet = r#"theorem soundness (c: ValidCircuit P P_Prime): True := by
+  sorry
+
+#audit_axioms RangeCheck.soundness
+"#;
+        let combined = scaffold_raw(&halva, snippet, true);
+        assert_eq!(combined.matches("import ZkGadgets.Audit").count(), 1);
+        assert_eq!(combined.matches("#audit_axioms").count(), 1);
+    }
+
+    #[test]
+    fn scaffold_soundness_honors_audit_gate_opt_out() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let config = SpecConfig {
+            spec_body: "True".to_string(),
+            extra_imports: vec![],
+            audit_gate: false,
+        };
+        let combined = scaffold_soundness(&halva, &config);
+        assert!(!combined.contains("#audit_axioms"));
+        assert!(!combined.contains("import ZkGadgets.Audit"));
+        assert!(combined.ends_with("end RangeCheck\n"));
+    }
+
+    #[test]
+    fn scaffold_raw_honors_audit_gate_opt_out() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let snippet = "theorem soundness (c: ValidCircuit P P_Prime): True := by\n  sorry\n";
+        let combined = scaffold_raw(&halva, snippet, false);
+        assert!(!combined.contains("#audit_axioms"));
+        assert!(!combined.contains("import ZkGadgets.Audit"));
+        assert!(combined.ends_with("end RangeCheck\n"));
+    }
+
+    #[test]
+    fn scaffold_raw_without_theorem_adds_no_gate() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let combined = scaffold_raw(&halva, "def MySpec := True\n", true);
+        assert!(!combined.contains("#audit_axioms"));
+        assert!(!combined.contains("import ZkGadgets.Audit"));
+        assert!(combined.ends_with("end RangeCheck\n"));
+    }
+
+    #[test]
+    fn scaffolds_reenable_unused_variable_linter_before_human_content() {
+        let halva = parse_halva_output(SAMPLE_HALVA).unwrap();
+        let reenable = "set_option linter.unusedVariables true";
+
+        // Structured mode: re-enable sits after the extracted prefix, before Spec.
+        let config = SpecConfig {
+            spec_body: "True".to_string(),
+            extra_imports: vec![],
+            audit_gate: true,
+        };
+        let combined = scaffold_soundness(&halva, &config);
+        let re_pos = combined.find(reenable).expect("re-enable present");
+        assert!(combined.find("set_option linter.unusedVariables false").unwrap() < re_pos);
+        assert!(re_pos < combined.find("def Spec").unwrap());
+
+        // Raw mode: same placement, before the snippet body.
+        let combined = scaffold_raw(&halva, "def MySpec := True\n", true);
+        let re_pos = combined.find(reenable).expect("re-enable present");
+        assert!(re_pos < combined.find("def MySpec").unwrap());
+
+        // No suppression in the extracted prefix → nothing to re-enable.
+        let clean = SAMPLE_HALVA.replace("set_option linter.unusedVariables false\n", "");
+        let halva = parse_halva_output(&clean).unwrap();
+        let combined = scaffold_raw(&halva, "def MySpec := True\n", true);
+        assert!(!combined.contains(reenable));
     }
 
     #[test]
@@ -601,7 +949,7 @@ import Mathlib.Tactic
 
 def MySpec := True
 "#;
-        let combined = scaffold_raw(&halva, snippet);
+        let combined = scaffold_raw(&halva, snippet, true);
         let ns_pos = combined.find("namespace RangeCheck").unwrap();
         let doc_pos = combined.find("/- Imports used").unwrap();
         let import_pos = combined.find("import Mathlib.Tactic").unwrap();

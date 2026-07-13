@@ -3,9 +3,14 @@ import Mathlib.Data.Nat.Prime.Basic
 import Mathlib.Data.ZMod.Defs
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Algebra.Field.ZMod
+import Mathlib.FieldTheory.Finite.Basic
 import Mathlib.Tactic.LinearCombination
 import ZkGadgets.Audit
 
+-- Halva's generated preamble below contains intentionally-unused binders
+-- (e.g. `λ col row => 0`); silence the linter for the extracted section ONLY.
+-- It is re-enabled before the human-written Spec — an unused hypothesis there
+-- is the decorative-hypothesis smell, and the warning is the canary for it.
 set_option linter.unusedVariables false
 
 namespace RangeCheck
@@ -114,17 +119,23 @@ def meets_constraints (c: ValidCircuit P P_Prime): Prop :=
   all_shuffles c ∧
   ∀ col row: ℕ, (row < c.n ∧ row ≥ c.usable_rows) → c.1.Instance col row = c.1.InstanceUnassigned col row
 
+-- End of Halva-extracted code: the unused-variable canary is back on for the
+-- Spec and proof below.
+set_option linter.unusedVariables true
+
 /-- Specification: when the range-check selector is enabled at a row, the advice
     value in that row is genuinely in [0, 10) — i.e. its canonical natural
     representative `ZMod.val` is `< 10`.
 
     This is the honest, non-vacuous statement. The earlier form
     `∃ k : Fin 10, (k.val : ZMod P) = advice` is vacuous when `P ≤ 10` (the casts of
-    `0..9` then cover all of `ZMod P`), so it is provable without ever using `hp` —
-    making `hp` decorative. `ZMod.val advice < 10` cannot be proved without `hp`:
-    the bound `P > 10` is exactly what forces `ZMod.val` to agree with the small
-    integer the advice cell encodes. -/
-def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
+    `0..9` then cover all of `ZMod P`), so it is provable without ever using the
+    prime bound. `ZMod.val advice < 10` cannot be proved without `hp : P > 10` —
+    the bound is exactly what forces `ZMod.val` to agree with the small integer
+    the advice cell encodes. The Spec itself carries no such hypothesis: it is a
+    plain property of the circuit, and the bound belongs to the *theorem* that
+    establishes it (where `#audit_uses` checks it is genuinely load-bearing). -/
+def Spec (c: ValidCircuit P P_Prime): Prop :=
   ∀ row : ℕ, c.get_selector 0 row = 1 →
     ZMod.val (c.get_advice 0 row) < 10
 
@@ -132,7 +143,7 @@ def Spec (c: ValidCircuit P P_Prime) (hp: P > 10): Prop :=
     then it satisfies the range-check specification.
     Conditional on Halva's extraction being faithful to halo2 execution semantics. -/
 theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
-    (h: meets_constraints c): Spec c hp := by
+    (h: meets_constraints c): Spec c := by
   haveI : Fact (Nat.Prime P) := ⟨P_Prime⟩
   intro row hsel
   -- The gate forces the advice value to be one of the field elements 0..9.
@@ -184,7 +195,12 @@ theorem soundness (c: ValidCircuit P P_Prime) (hp: P > 10)
 
 /-- Non-vacuity witness: the bound `ZMod.val advice < 10` is a genuine restriction.
     In `ZMod 11` (prime, > 10) the element `10` refutes it, so the spec is not
-    `True` in disguise and the `P > 10` hypothesis is load-bearing. -/
+    `True` in disguise and the `P > 10` hypothesis is load-bearing.
+
+    This is hand-written rather than an `#audit_falsifiable` probe: the C2/C3
+    commands need decidable, enumerable instantiations, and a circuit-level
+    theorem quantifies over `ValidCircuit` (function-typed advice/fixed/instance
+    columns), which no finite probe can enumerate. -/
 example : ¬ ((10 : ZMod 11).val < 10) := by decide
 
 
@@ -194,3 +210,33 @@ end RangeCheck
 -- soundness proof must actually use it (it was decorative before the non-vacuity fix).
 #audit_requires RangeCheck.soundness "P > 10"
 #audit_uses RangeCheck.soundness
+-- Soundness gate: the proof rests only on the trusted kernel axioms.
+#audit_axioms RangeCheck.soundness
+
+/-- **Model-fidelity audit (inherited from Halva).** The extractor's `isValid`
+    preamble defines `multiplicative_generator P g := g ^ P = 1`, which is
+    mathematically wrong: by Fermat's little theorem `g ^ P = g` in `ZMod P` for
+    prime `P`, so the predicate holds *only* for `g = 1` — an actual generator can
+    never satisfy it. This is harmless for every proof in this repo (they
+    destructure `meets_constraints` and never load `isValid`'s generator field),
+    but it is exactly why "valid circuit" preambles deserve their own scrutiny.
+    Kernel-checked here so the smell can neither silently disappear nor be
+    silently relied upon. Upstream: Halva `src/extraction.rs`
+    (`multiplicative_generator`). -/
+theorem RangeCheck.multiplicative_generator_forces_one
+    {P : ℕ} (hP : Nat.Prime P) (g : ZMod P) :
+    RangeCheck.multiplicative_generator P g ↔ g = 1 := by
+  haveI : Fact (Nat.Prime P) := ⟨hP⟩
+  unfold RangeCheck.multiplicative_generator
+  constructor
+  · intro h
+    exact (ZMod.pow_card g).symm.trans h
+  · intro h
+    rw [h, one_pow]
+
+-- Concrete witness: 2 generates (ZMod 5)ˣ yet fails the predicate (2^5 = 2 ≠ 1).
+example : ¬ RangeCheck.multiplicative_generator 5 2 := by
+  unfold RangeCheck.multiplicative_generator
+  decide
+
+#audit_axioms RangeCheck.multiplicative_generator_forces_one

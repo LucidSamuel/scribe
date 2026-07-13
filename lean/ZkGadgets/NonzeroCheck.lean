@@ -23,3 +23,10 @@ theorem nonzero_check_sound
   have hmul : x * x_inv = 1 := sub_eq_zero.mp h_inverse
   rw [h_zero, zero_mul] at hmul
   exact one_ne_zero hmul.symm
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms nonzero_check_sound
+-- Verdict-engine probes (C2/C3): x = 0 refutes the conclusion; 2 · 3 = 1 in ZMod 5
+-- witnesses a satisfiable inverse constraint.
+#audit_falsifiable nonzero_check_sound (p := 5) (x := 0)
+#audit_satisfiable nonzero_check_sound (p := 5) (x := 2) (x_inv := 3)

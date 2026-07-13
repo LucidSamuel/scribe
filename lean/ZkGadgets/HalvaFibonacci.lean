@@ -1,9 +1,14 @@
+import ZkGadgets.Audit
 import Mathlib.Data.Nat.Prime.Defs
 import Mathlib.Data.Nat.Prime.Basic
 import Mathlib.Data.ZMod.Defs
 import Mathlib.Data.ZMod.Basic
 import Mathlib.Tactic.LinearCombination
 
+-- Halva's generated preamble below contains intentionally-unused binders
+-- (e.g. `λ col row => 0`); silence the linter for the extracted section ONLY.
+-- It is re-enabled before the human-written Spec — an unused hypothesis there
+-- is the decorative-hypothesis smell, and the warning is the canary for it.
 set_option linter.unusedVariables false
 
 namespace Fibonacci.Ex1
@@ -139,6 +144,10 @@ def meets_constraints (c: ValidCircuit P P_Prime): Prop :=
   all_shuffles c ∧
   ∀ col row: ℕ, (row < c.n ∧ row ≥ c.usable_rows) → c.1.Instance col row = c.1.InstanceUnassigned col row
 
+-- End of Halva-extracted code: the unused-variable canary is back on for the
+-- Spec and proof below.
+set_option linter.unusedVariables true
+
 /-- Specification: the Fibonacci circuit lays out the recurrence f(i+2) = f(i+1) + f(i)
     across 8 enabled rows, seeded by the two instance inputs and copied row-to-row.
     Unwinding the add gate and the copy constraints, the third instance cell (the
@@ -195,3 +204,11 @@ theorem soundness (c: ValidCircuit P P_Prime) (h: meets_constraints c): Spec c :
   linear_combination e7 - hc16
 
 end Fibonacci.Ex1
+
+-- Soundness gate: the proof rests only on the trusted kernel axioms.
+#audit_axioms Fibonacci.Ex1.soundness
+
+-- Model-fidelity note: this file inherits Halva's broken `multiplicative_generator`
+-- predicate (it forces `g = 1`). Harmless here — the proof never loads `isValid` —
+-- see the kernel-checked witness `RangeCheck.multiplicative_generator_forces_one`
+-- in `HalvaRangeCheck.lean`.

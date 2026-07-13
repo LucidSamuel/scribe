@@ -16,6 +16,20 @@ Constraints:
 
 Soundness: 168700 * x3 * x3 + y3 * y3 = 1 + 168696 * x3 * x3 * y3 * y3
 
+## Scope — what this theorem does and does not say
+
+* It proves **closure**: inputs on the curve + the two addition constraints imply
+  the output `(x3, y3)` is on the curve. Closure is necessary but *not sufficient*
+  for "the gadget computes Edwards addition" — a buggy gadget could emit a wrong
+  on-curve point. Full functional soundness would conclude
+  `(x3, y3) = (x1, y1) + (x2, y2)` against the twisted Edwards group law
+  (equivalently, witness uniqueness given the inputs). Future work.
+* `h_nondeg_x` / `h_nondeg_y` (nonzero denominators) are **assumed**, not derived.
+  Baby Jubjub is a complete twisted Edwards curve (`a = 168700` a square,
+  `d = 168696` a non-square mod the BN254 scalar prime), so they in fact hold for
+  all on-curve inputs; deriving them from the curve parameters instead of
+  assuming them is future work.
+
 Proof strategy:
   1. Extract x3*(1+D) = A and y3*(1-D) = B from constraints
   2. Square to get x3²*Dp² = A² and y3²*E² = B²
@@ -137,3 +151,12 @@ theorem edwards_addition_sound
     · exact absurd h_right hE2_ne
   -- Step 6: Convert G = 0 to the goal equality
   linear_combination h_zero
+
+-- Soundness gate: this proof rests only on the trusted kernel axioms.
+#audit_axioms edwards_addition_sound
+-- Verdict-engine probes (C2/C3) over ZMod 7 (where a = 168700 ≡ 0 and d = 168696 ≡ 3):
+-- (0, 0) is off-curve (0 ≠ 1), refuting the conclusion; adding the identity (0, 1)
+-- to itself satisfies every constraint with output (0, 1).
+#audit_falsifiable edwards_addition_sound (p := 7) (x3 := 0) (y3 := 0)
+#audit_satisfiable edwards_addition_sound (p := 7)
+  (x1 := 0) (y1 := 1) (x2 := 0) (y2 := 1) (x3 := 0) (y3 := 1)

@@ -1,0 +1,28 @@
+# ZKGadgetEval smoke suite — a cheap end-to-end check of the harness itself:
+# one easy positive the loop should prove quickly, plus both negative gadgets
+# (false specs the loop must refuse to prove — a "proved" negative exits 2).
+#
+#   cargo run -p zkgadget-eval -- --suite benchmark/suite-smoke.toml \
+#     --budget 2 -o benchmark/results/smoke.json
+
+version = "0.2.0"
+
+[[gadgets]]
+file = "suite/02-boolean-check.toml"
+tier = 1
+constraints = 1
+description = "Boolean constraint: b = 0 ∨ b = 1"
+
+[[gadgets]]
+file = "suite/16-neg-underconstrained-range.toml"
+tier = 2
+constraints = 2
+kind = "negative"
+description = "NEGATIVE: 2-bit range check missing the b1 boolean constraint — spec is false"
+
+[[gadgets]]
+file = "suite/17-neg-vacuous-constraint.toml"
+tier = 1
+constraints = 1
+kind = "negative"
+description = "NEGATIVE: only constraint is x - x = 0, spec claims x = 0 — spec is false"

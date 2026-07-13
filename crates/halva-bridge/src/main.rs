@@ -40,6 +40,7 @@ fn main() {
     let mut backend_name = String::from("claude");
     let mut api_key: Option<String> = None;
     let mut base_url: Option<String> = None;
+    let mut audit_gate = true;
 
     let mut i = 2;
     while i < args.len() {
@@ -75,6 +76,7 @@ fn main() {
             }
             "--transcript" => transcript = Some(flag_value(&args, &mut i, "--transcript")),
             "--lsp" => use_lsp = true,
+            "--no-audit-gate" => audit_gate = false,
             "--backend" => backend_name = flag_value(&args, &mut i, "--backend"),
             "--api-key" => api_key = Some(flag_value(&args, &mut i, "--api-key")),
             "--base-url" => base_url = Some(flag_value(&args, &mut i, "--base-url")),
@@ -124,12 +126,13 @@ fn main() {
             eprintln!("error reading spec file {snippet_path}: {e}");
             process::exit(1);
         });
-        scaffold_raw(&halva, &snippet)
+        scaffold_raw(&halva, &snippet, audit_gate)
     } else if let Some(spec_body) = &spec {
         // Structured mode: auto-generate Spec def + soundness theorem.
         let config = SpecConfig {
             spec_body: spec_body.clone(),
             extra_imports,
+            audit_gate,
         };
         scaffold_soundness(&halva, &config)
     } else {
@@ -241,6 +244,8 @@ fn usage() {
     eprintln!("  --system-prompt <file>    System prompt file");
     eprintln!("  --transcript <file>       Transcript log file");
     eprintln!("  --lsp                     Use LSP feedback");
+    eprintln!("  --no-audit-gate           Skip the #audit_axioms gate + ZkGadgets.Audit import");
+    eprintln!("                            (for lake dirs without scribe's ZkGadgets library)");
     eprintln!("  --api-key <key>           API key");
     eprintln!("  --base-url <url>          API endpoint override");
 }

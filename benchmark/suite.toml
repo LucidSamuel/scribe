@@ -5,8 +5,14 @@
 #   1 = single-tactic (linear_combination, ring, rcases)
 #   2 = multi-step (case splits, substitution chains, 2-5 tactic lines)
 #   3 = deep algebraic (curve arithmetic, multi-hypothesis, 5+ tactic lines)
+#
+# kind = "negative" marks a deliberately under-constrained gadget whose spec is
+# FALSE: the loop is graded on REFUSING to prove it. A negative gadget that gets
+# "proved" is a soundness alarm and fails the whole run. Without negatives, the
+# suite cannot distinguish "the loop proves true specs" from "the loop proves
+# anything you hand it".
 
-version = "0.1.0"
+version = "0.2.0"
 
 [[gadgets]]
 file = "suite/01-range-check-8.toml"
@@ -97,3 +103,17 @@ file = "suite/15-inner-product.toml"
 tier = 3
 constraints = 5
 description = "4-element inner product with accumulators"
+
+[[gadgets]]
+file = "suite/16-neg-underconstrained-range.toml"
+tier = 2
+constraints = 2
+kind = "negative"
+description = "NEGATIVE: 2-bit range check missing the b1 boolean constraint — spec is false"
+
+[[gadgets]]
+file = "suite/17-neg-vacuous-constraint.toml"
+tier = 1
+constraints = 1
+kind = "negative"
+description = "NEGATIVE: only constraint is x - x = 0, spec claims x = 0 — spec is false"
