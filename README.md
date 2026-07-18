@@ -37,7 +37,7 @@ Zero-knowledge circuits are notoriously hard to get right: a single under-constr
 Three properties make this trustworthy:
 
 - **Sound by construction.** Every proof in this repo is checked by the Lean 4 kernel, and an `#audit_axioms` gate next to each theorem runs the engine behind `#print axioms` at build time, rejecting anything that depends on more than the three standard axioms. That catches a transitive `sorryAx` (what `sorry`/`admit` elaborate to) or `native_decide`'s `ofReduceBool` reached through any dependency — which a textual grep cannot. See [`Audit.lean`](lean/ZkGadgets/Audit.lean).
-- **Specs audited, not just proofs.** A kernel-checked proof of a meaningless statement proves nothing, so a dual-sided **verdict engine** probes the statements themselves at build time: `#audit_uses` / `#audit_requires` (C1) fail the build on decorative or dropped hypotheses; `#audit_falsifiable` (C2) requires a kernel-checked refutation of the conclusion at a finite-model instantiation, killing vacuously-true specs; `#audit_satisfiable` (C3) requires a witness satisfying every constraint, killing impossible-antecedent specs. A theorem passing C1–C3 has demonstrated content: its constraints can hold, its conclusion can fail, and its side-conditions are load-bearing. (C4, an adversarial LLM refuter, is roadmap.)
+- **Specs audited, not just proofs.** A kernel-checked proof of a meaningless statement proves nothing, so a dual-sided **verdict engine** probes the statements themselves at build time: `#audit_uses` / `#audit_requires` (C1) fail the build on decorative or dropped hypotheses; `#audit_falsifiable` (C2) requires a kernel-checked refutation of the conclusion at a finite-model instantiation, killing vacuously-true specs; `#audit_satisfiable` (C3) requires a witness satisfying every constraint, killing impossible-antecedent specs. A theorem passing C1–C3 has demonstrated content: its constraints can hold, its conclusion can fail, and its side-conditions are load-bearing. `scribe refute` (C4) completes the dual side: an adversarial LLM loop attacks the spec itself, hunting for a kernel-checked counterexample — so a spec is only trusted after surviving the same class of refutation search that catches under-constrained circuits.
 - **Automated.** An LLM drives a closed feedback loop, edit the proof, compile, read the errors (or structured LSP goal states), repeat until the kernel accepts or the budget runs out.
 - **Real circuits.** The `halva-bridge` consumes actual Halva-style halo2 extraction output and proves soundness against a human-written specification.
 
@@ -123,6 +123,19 @@ Both forms run `proof-pilot` by default and exit `0` only when the Lean kernel a
 
 > [!NOTE]
 > **Scope.** `scribe verify --circuit` operates on a Halva *extractor project* — you still author the small extractor program that runs against your halo2 circuit. scribe does not read raw halo2 Rust source directly. The chain is: extractor-project output → Lean scaffold → LLM proof loop → kernel-accepted `.lean`.
+
+### `scribe refute`
+
+The adversarial half of the verdict engine (C4): instead of proving the spec, attack it.
+
+```sh
+scribe refute --gadget examples/range-check/gadget.toml \
+  [--prime P]        # default: smallest prime satisfying the gadget's `p > N` bounds
+  [--max-iters N]    # refutation attempts (default: 6)
+  [--scaffold-only]  # emit the negated statement and stop
+```
+
+The gadget's soundness statement is emitted at a concrete small prime, **negated**, and an LLM refuter loop (system prompt `prompts/lean-refuter.md`) tries to prove the negation — i.e. exhibit witness values that satisfy every constraint while violating the spec. A kernel-accepted refutation is exactly as trustworthy as a kernel-accepted proof, and carries its own `#audit_axioms` gate. Exit codes: `2` = **REFUTED** (the circuit is under-constrained or the spec is wrong — the counterexample is in the output file), `0` = **SURVIVED** (no refutation within budget; evidence, not proof), `1` = infrastructure error.
 
 ### `scribe init`
 

@@ -48,6 +48,19 @@ enum Commands {
     /// --circuit` expects: a Cargo project whose `cargo run --release` prints
     /// Halva Lean output to stdout.
     Init(init_cmd::InitArgs),
+
+    /// Adversarially attack a gadget's spec: hunt for a kernel-checked
+    /// counterexample (verdict engine C4).
+    ///
+    /// Emits the soundness statement at a concrete small prime, NEGATED, and
+    /// runs an LLM refuter loop that tries to prove the negation — i.e. exhibit
+    /// witness values satisfying every constraint while violating the spec.
+    ///
+    /// Exit codes: 2 = REFUTED (a kernel-checked counterexample exists — the
+    /// circuit is under-constrained or the spec is wrong); 0 = SURVIVED (no
+    /// refutation found within the budget; evidence, not proof, of soundness);
+    /// 1 = infrastructure error.
+    Refute(refute_cmd::RefuteArgs),
 }
 
 mod verify_cmd {
@@ -240,6 +253,64 @@ mod init_cmd {
     }
 }
 
+mod refute_cmd {
+    use clap::Args;
+
+    #[derive(Args)]
+    pub struct RefuteArgs {
+        /// Gadget IR file (TOML) whose soundness spec should be attacked.
+        #[arg(long, value_name = "FILE")]
+        pub gadget: String,
+
+        /// Probe prime for the finite model. Default: the smallest prime
+        /// satisfying every `p > N` hypothesis the gadget declares (floor 5).
+        #[arg(long, value_name = "P")]
+        pub prime: Option<u64>,
+
+        /// Output path for the refutation scaffold
+        /// (default: `<lake-dir>/ZkGadgets/Bench/Refute<Name>.lean`).
+        #[arg(short = 'o', long, value_name = "FILE")]
+        pub output: Option<String>,
+
+        /// Write the scaffold and stop; skip the refuter loop.
+        #[arg(long)]
+        pub scaffold_only: bool,
+
+        /// Lake project directory (default: $LAKE_DIR env var, else `lean`).
+        #[arg(long, value_name = "DIR")]
+        pub lake_dir: Option<String>,
+
+        /// Maximum refutation attempts (default: 6).
+        #[arg(long, value_name = "N", default_value = "6")]
+        pub max_iters: u32,
+
+        /// LLM backend to use (default: claude). See `scribe verify --help`.
+        #[arg(long, value_name = "NAME", default_value = "claude")]
+        pub backend: String,
+
+        /// Model name override.
+        #[arg(long, value_name = "MODEL")]
+        pub model: Option<String>,
+
+        /// API key for the selected backend.
+        #[arg(long, value_name = "KEY")]
+        pub api_key: Option<String>,
+
+        /// API base URL override.
+        #[arg(long, value_name = "URL")]
+        pub base_url: Option<String>,
+
+        /// System prompt file (default: $SCRIBE_PROMPTS_DIR/lean-refuter.md,
+        /// else `prompts/lean-refuter.md`).
+        #[arg(long, value_name = "FILE")]
+        pub system_prompt: Option<String>,
+
+        /// Transcript log file path (optional).
+        #[arg(long, value_name = "FILE")]
+        pub transcript: Option<String>,
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -256,6 +327,9 @@ fn main() {
         }
         Commands::Init(args) => {
             init::run_init(args);
+        }
+        Commands::Refute(args) => {
+            orchestrate::run_refute(args);
         }
     }
 }
@@ -396,6 +470,38 @@ mod tests {
             assert!(args.no_prove);
         } else {
             panic!("expected Verify");
+        }
+    }
+
+    #[test]
+    fn refute_args_parse_with_defaults() {
+        let cli = Cli::try_parse_from(["scribe", "refute", "--gadget", "g.toml"])
+            .expect("should parse");
+        if let Commands::Refute(args) = cli.command {
+            assert_eq!(args.gadget, "g.toml");
+            assert_eq!(args.prime, None); // auto-picked from `p > N` hypotheses
+            assert_eq!(args.max_iters, 6);
+            assert!(!args.scaffold_only);
+            assert_eq!(args.backend, "claude");
+        } else {
+            panic!("expected Refute");
+        }
+
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "refute",
+            "--gadget",
+            "g.toml",
+            "--prime",
+            "257",
+            "--scaffold-only",
+        ])
+        .expect("should parse");
+        if let Commands::Refute(args) = cli.command {
+            assert_eq!(args.prime, Some(257));
+            assert!(args.scaffold_only);
+        } else {
+            panic!("expected Refute");
         }
     }
 

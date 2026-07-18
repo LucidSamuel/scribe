@@ -1,4 +1,4 @@
-//! Orchestration logic for `scribe verify` and `scribe demo`.
+//! Orchestration logic for `scribe verify`, `scribe demo`, and `scribe refute`.
 
 use std::fs;
 use std::path::Path;
@@ -13,11 +13,13 @@ use proof_pilot::transcript;
 
 use crate::demo_cmd::DemoArgs;
 use crate::extract;
+use crate::refute_cmd::RefuteArgs;
 use crate::verify_cmd::VerifyArgs;
 
 // ── Default paths / environment ──────────────────────────────────────────────
 
 const FALLBACK_SYSTEM_PROMPT: &str = "prompts/lean-prover.md";
+const REFUTER_PROMPT_FILE: &str = "lean-refuter.md";
 
 /// Resolve the system prompt path:
 /// 1. Explicit `--system-prompt <file>` flag.
@@ -27,6 +29,16 @@ fn resolve_system_prompt(explicit: Option<&str>) -> Option<String> {
     resolve_system_prompt_from(explicit, std::env::var("SCRIBE_PROMPTS_DIR").ok())
 }
 
+/// Same precedence for the adversarial refuter prompt (`lean-refuter.md`).
+fn resolve_refuter_prompt(explicit: Option<&str>) -> Option<String> {
+    resolve_prompt_from(
+        explicit,
+        std::env::var("SCRIBE_PROMPTS_DIR").ok(),
+        REFUTER_PROMPT_FILE,
+        "prompts/lean-refuter.md",
+    )
+}
+
 /// Pure resolution split out of `resolve_system_prompt` so it can be unit
 /// tested without mutating the process environment (which races under the
 /// parallel test runner).
@@ -34,16 +46,25 @@ fn resolve_system_prompt_from(
     explicit: Option<&str>,
     prompts_dir: Option<String>,
 ) -> Option<String> {
+    resolve_prompt_from(explicit, prompts_dir, "lean-prover.md", FALLBACK_SYSTEM_PROMPT)
+}
+
+fn resolve_prompt_from(
+    explicit: Option<&str>,
+    prompts_dir: Option<String>,
+    filename: &str,
+    fallback: &str,
+) -> Option<String> {
     if let Some(path) = explicit {
         return Some(path.to_string());
     }
     if let Some(dir) = prompts_dir {
-        let path = format!("{dir}/lean-prover.md");
+        let path = format!("{dir}/{filename}");
         if Path::new(&path).exists() {
             return Some(path);
         }
     }
-    Some(FALLBACK_SYSTEM_PROMPT.to_string())
+    Some(fallback.to_string())
 }
 
 /// Resolve the lake dir: explicit `--lake-dir` → `$LAKE_DIR` → `lean`.
@@ -281,6 +302,105 @@ const DEMO_STAGE_LABELS: [&str; 4] = [
     "Stage 3: proof loop (LLM + lake build feedback)",
     "Stage 4: kernel-checked proof",
 ];
+
+// ── scribe refute ────────────────────────────────────────────────────────────
+
+/// Verdict engine C4: adversarially attack a gadget's spec. Emits the negated
+/// soundness statement at a concrete small prime and runs an LLM loop that
+/// hunts for a kernel-checked counterexample.
+///
+/// Exit codes: 2 = REFUTED (counterexample found — that is the alarm),
+/// 0 = SURVIVED (budget exhausted without one), 1 = infrastructure error.
+pub fn run_refute(args: RefuteArgs) {
+    let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
+        eprintln!("error: cannot load gadget {}: {e}", args.gadget);
+        process::exit(1);
+    });
+
+    let prime = args
+        .prime
+        .unwrap_or_else(|| lean_emit::refutation_prime(&gadget, 5));
+    let scaffold = lean_emit::emit_refutation(&gadget, prime).unwrap_or_else(|e| {
+        eprintln!("error: cannot emit refutation scaffold: {e}");
+        process::exit(1);
+    });
+
+    let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
+    let out_path = args.output.clone().unwrap_or_else(|| {
+        let sanitized: String = gadget
+            .name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        format!("{lake_dir}/ZkGadgets/Bench/Refute{sanitized}.lean")
+    });
+    if let Some(parent) = Path::new(&out_path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&out_path, &scaffold).unwrap_or_else(|e| {
+        eprintln!("error: cannot write {out_path}: {e}");
+        process::exit(1);
+    });
+    eprintln!("[scribe] refutation target written: {out_path} (p = {prime})");
+
+    if args.scaffold_only {
+        println!("SCAFFOLD: {out_path}");
+        return;
+    }
+
+    let system_prompt_path = resolve_refuter_prompt(args.system_prompt.as_deref());
+    let system_prompt = system_prompt_path.map(|path| {
+        fs::read_to_string(&path).unwrap_or_else(|e| {
+            eprintln!("error: cannot read system prompt {path}: {e}");
+            process::exit(1);
+        })
+    });
+
+    let backend = make_backend(
+        &args.backend,
+        args.model.clone(),
+        args.api_key.clone(),
+        args.base_url.clone(),
+    );
+    eprintln!("[scribe] refuter backend: {}", backend.name());
+
+    let config = SessionConfig {
+        lean_file: out_path.clone(),
+        lake_dir,
+        max_iterations: args.max_iters,
+        system_prompt,
+        transcript: args.transcript.clone(),
+        use_lsp: false,
+    };
+
+    let (result, _journal) = session::run(&config, backend.as_ref());
+
+    match result {
+        SessionResult::Proven { iterations } => {
+            eprintln!(
+                "[scribe] ⚠ REFUTED in {iterations} iteration(s): a kernel-checked \
+                 counterexample exists at p = {prime}"
+            );
+            eprintln!(
+                "[scribe] the circuit is under-constrained (or the spec is wrong); \
+                 the counterexample is in the proof of {out_path}"
+            );
+            println!("REFUTED: {out_path}");
+            process::exit(2);
+        }
+        SessionResult::Exhausted { iterations, .. } => {
+            eprintln!(
+                "[scribe] SURVIVED: no refutation found in {iterations} iteration(s) \
+                 at p = {prime} (evidence, not proof, of soundness)"
+            );
+            println!("SURVIVED: {}", args.gadget);
+        }
+        SessionResult::Failed(msg) => {
+            eprintln!("[scribe] fatal error: {msg}");
+            process::exit(1);
+        }
+    }
+}
 
 pub fn run_demo(args: DemoArgs) {
     let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
