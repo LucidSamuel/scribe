@@ -117,3 +117,24 @@ tier = 1
 constraints = 1
 kind = "negative"
 description = "NEGATIVE: only constraint is x - x = 0, spec claims x = 0 — spec is false"
+
+[[gadgets]]
+file = "suite/18-neg-is-zero-missing-constraint.toml"
+tier = 2
+constraints = 1
+kind = "negative"
+description = "NEGATIVE: is-zero missing the x*out = 0 constraint — nonzero x can claim out = 1"
+
+[[gadgets]]
+file = "suite/19-neg-swap-unconstrained-output.toml"
+tier = 2
+constraints = 2
+kind = "negative"
+description = "NEGATIVE: swap gate with the out2 mux constraint dropped — out2 is a dangling wire"
+
+[[gadgets]]
+file = "suite/20-neg-wrong-inverse-constraint.toml"
+tier = 1
+constraints = 1
+kind = "negative"
+description = "NEGATIVE: inverse constraint typo (x*inv - inv = 0) — satisfied by inv = 0 for any x"

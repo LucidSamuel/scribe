@@ -217,7 +217,7 @@ Every theorem below is complete and kernel-checked (`lake build` is green, and e
 
 ## Benchmark: ZKGadgetEval
 
-`crates/bench` runs the proof loop over a 17-gadget suite (`benchmark/suite.toml`, tiers 1–3 by difficulty) and reports statistics an eval can be judged on, not just a smoke-test pass count:
+`crates/bench` runs the proof loop over a 20-gadget suite (`benchmark/suite.toml`, tiers 1–3 by difficulty) and reports statistics an eval can be judged on, not just a smoke-test pass count:
 
 ```sh
 cargo run -p zkgadget-eval -- --backend claude --budget 5 \
@@ -226,7 +226,7 @@ cargo run -p zkgadget-eval -- --backend claude --budget 5 \
 
 - **`--samples k`** — resample each gadget *k* times; per gadget the JSON reports the unbiased **pass@k** estimator (`1 − C(n−c,k)/C(n,k)`) for every `k ≤ n` plus a **Wilson 95% interval** on the per-sample prove probability, so run-to-run variance is measured instead of hidden.
 - **`--modes build,lsp`** — the feedback-mode axis (raw `lake build` text vs. structured LSP goal states) runs inside one invocation as an A/B; the summary is broken down per mode.
-- **Negative gadgets** — the suite contains deliberately under-constrained circuits whose spec is *false* (`kind = "negative"`): a 2-bit range check missing a boolean constraint, and a gadget whose only constraint is `x − x = 0` with spec `x = 0`. The loop is graded on **refusing** to prove them. A "proved" negative is a soundness alarm: the run prints it loudly and exits `2`. Without negatives, a suite cannot distinguish "the loop proves true specs" from "the loop proves anything you hand it".
+- **Negative gadgets** — the suite contains five deliberately buggy circuits whose spec is *false* (`kind = "negative"`), spanning distinct audit-bug classes: a range check missing a boolean constraint, a vacuous `x − x = 0` constraint, the classic is-zero gadget missing its `x·out = 0` half, a swap gate with a dangling output wire, and a one-term constraint typo (`x·inv − inv` for `x·inv − 1`). Every spec is kernel-checked *false* (a concrete counterexample refutes it, documented in each TOML), gadget names are neutral so nothing the model sees marks them as traps, and the loop is graded on **refusing** to prove them. A "proved" negative is a soundness alarm: the run prints it loudly and exits `2`. Without negatives, a suite cannot distinguish "the loop proves true specs" from "the loop proves anything you hand it".
 
 Honest limitations: the suite exercises algebraic gate constraints only (no lookup or permutation arguments — see the scope note above), and samples are independent reruns of the same nondeterministic loop, not seed-controlled.
 
