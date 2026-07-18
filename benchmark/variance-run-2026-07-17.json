@@ -1,0 +1,1569 @@
+{
+  "suite_version": "0.2.0",
+  "backend": "claude-cli (claude-sonnet-5)",
+  "budget": 5,
+  "samples": 3,
+  "modes": [
+    "build",
+    "lsp"
+  ],
+  "results": [
+    {
+      "gadget": "01-range-check-8",
+      "tier": 2,
+      "constraints": 9,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 2,
+      "failed": 0,
+      "pass_at": {
+        "1": 0.6666666666666667,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.20765495512648788,
+        0.9385096847238393
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 357.069295333,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 2,
+          "wall_time_s": 342.842094167,
+          "error": null
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 857.521127125,
+          "error": "Build completed successfully (1898 jobs)."
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "01-range-check-8",
+      "tier": 2,
+      "constraints": 9,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 466.56137025,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 312.513766625,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 2,
+          "wall_time_s": 330.65279825,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "02-boolean-check",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 21.184716916,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 17.617379584,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 19.371275875,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "02-boolean-check",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 32.545723833,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 33.59147425,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 34.745554333,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "03-nonzero-check",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 20.450713625,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 21.073979,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 18.551143582999998,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "03-nonzero-check",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 36.373038834,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 37.792004583,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 41.373048708,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "04-equality-check",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 16.824655333,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 20.071367917,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 22.327119833,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "04-equality-check",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 34.602823958,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 35.278734875,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 31.465721375,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "05-add-gate",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 17.455089292,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 20.966976834,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 24.281082334,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "05-add-gate",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 33.458318375,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 33.771281875,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 2,
+          "wall_time_s": 50.751254458,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "06-mul-gate",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 17.981000083,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 17.19909425,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 19.9799365,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "06-mul-gate",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 36.53127675,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 31.558799334,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 33.204871458,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "07-conditional-select",
+      "tier": 2,
+      "constraints": 2,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 116.629555917,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 42.415242084,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 40.579141833,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "07-conditional-select",
+      "tier": 2,
+      "constraints": 2,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 62.25718325,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 64.011625292,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 54.289924458,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "08-poseidon-sbox",
+      "tier": 2,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 25.970598666,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 18.155669,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 19.705588667,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "08-poseidon-sbox",
+      "tier": 2,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 30.972729166,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 30.580510083,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 29.459618292,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "09-poseidon-sbox-7",
+      "tier": 2,
+      "constraints": 4,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 15.9093485,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 22.524273917,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 21.807888459,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "09-poseidon-sbox-7",
+      "tier": 2,
+      "constraints": 4,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 31.270405708,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 34.514272666,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 35.863445,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "10-swap-gate",
+      "tier": 2,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 37.804435209,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 49.177759625,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 31.740974167,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "10-swap-gate",
+      "tier": 2,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 51.64635175,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 51.282471167,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 57.744581375,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "11-is-zero",
+      "tier": 2,
+      "constraints": 2,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 2,
+          "wall_time_s": 50.510964541999996,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 37.695638708,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 25.591164167,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "11-is-zero",
+      "tier": 2,
+      "constraints": 2,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 42.859656292,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 43.645026083,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 33.081668958,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "12-polynomial-eval",
+      "tier": 2,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 21.3394495,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 26.360589958,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 23.906743209,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "12-polynomial-eval",
+      "tier": 2,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 40.542073667,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 36.335226208,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 34.252408667,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "13-edwards-add",
+      "tier": 3,
+      "constraints": 2,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 86.147325667,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 358.8714545,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 95.39194875,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "13-edwards-add",
+      "tier": 3,
+      "constraints": 2,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 380.306297292,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 93.083929083,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 387.256090083,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "14-weierstrass-add",
+      "tier": 3,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 662.452896208,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 2,
+          "wall_time_s": 722.659094333,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 603.025517667,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "14-weierstrass-add",
+      "tier": 3,
+      "constraints": 3,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 118.889743875,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 265.004563125,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 2,
+          "wall_time_s": 529.352333166,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "15-inner-product",
+      "tier": 3,
+      "constraints": 5,
+      "kind": "positive",
+      "mode": "build",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 20.935646291,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 17.436409167,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 22.216669291,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "15-inner-product",
+      "tier": 3,
+      "constraints": 5,
+      "kind": "positive",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 3,
+      "failed": 0,
+      "pass_at": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "wilson95": [
+        0.4384939195509822,
+        1.0
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 42.130556375,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 35.398593625,
+          "error": null
+        },
+        {
+          "status": "proven",
+          "proved": true,
+          "iterations": 1,
+          "wall_time_s": 40.665888041,
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "16-neg-underconstrained-range",
+      "tier": 2,
+      "constraints": 2,
+      "kind": "negative",
+      "mode": "build",
+      "n": 3,
+      "proved": 0,
+      "failed": 0,
+      "pass_at": {
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "wilson95": [
+        0.0,
+        0.5615060804490177
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 311.5272885,
+          "error": "Build completed successfully (1898 jobs)."
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 611.275147625,
+          "error": "(patch error: no code block found in LLM response)"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 360.222148708,
+          "error": "Build completed successfully (1898 jobs)."
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "16-neg-underconstrained-range",
+      "tier": 2,
+      "constraints": 2,
+      "kind": "negative",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 0,
+      "failed": 0,
+      "pass_at": {
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "wilson95": [
+        0.0,
+        0.5615060804490177
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 896.027718625,
+          "error": "--- diagnostics ---"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 749.411349416,
+          "error": "--- diagnostics ---"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 460.186695625,
+          "error": "--- diagnostics ---"
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "17-neg-vacuous-constraint",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "negative",
+      "mode": "build",
+      "n": 3,
+      "proved": 0,
+      "failed": 0,
+      "pass_at": {
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "wilson95": [
+        0.0,
+        0.5615060804490177
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 629.127814917,
+          "error": "(patch error: no code block found in LLM response)"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 321.628836792,
+          "error": "(patch error: no code block found in LLM response)"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 465.452830084,
+          "error": "(patch error: no code block found in LLM response)"
+        }
+      ],
+      "error": null
+    },
+    {
+      "gadget": "17-neg-vacuous-constraint",
+      "tier": 1,
+      "constraints": 1,
+      "kind": "negative",
+      "mode": "lsp",
+      "n": 3,
+      "proved": 0,
+      "failed": 0,
+      "pass_at": {
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "wilson95": [
+        0.0,
+        0.5615060804490177
+      ],
+      "soundness_alarm": false,
+      "samples": [
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 380.849106,
+          "error": "--- diagnostics ---"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 510.814233375,
+          "error": "--- diagnostics ---"
+        },
+        {
+          "status": "exhausted",
+          "proved": false,
+          "iterations": 5,
+          "wall_time_s": 289.33109225,
+          "error": "--- diagnostics ---"
+        }
+      ],
+      "error": null
+    }
+  ],
+  "summary": {
+    "total_time_s": 15359.278051584,
+    "positives": {
+      "build": {
+        "gadgets": 15,
+        "samples": 45,
+        "proved_samples": 44,
+        "pass_rate": 0.9777777777777777,
+        "mean_pass_at_1": 0.9777777777777779,
+        "by_tier": {
+          "1": {
+            "samples": 15,
+            "proved": 15,
+            "pass_rate": 1.0
+          },
+          "2": {
+            "samples": 21,
+            "proved": 20,
+            "pass_rate": 0.9523809523809523
+          },
+          "3": {
+            "samples": 9,
+            "proved": 9,
+            "pass_rate": 1.0
+          }
+        }
+      },
+      "lsp": {
+        "gadgets": 15,
+        "samples": 45,
+        "proved_samples": 45,
+        "pass_rate": 1.0,
+        "mean_pass_at_1": 1.0,
+        "by_tier": {
+          "1": {
+            "samples": 15,
+            "proved": 15,
+            "pass_rate": 1.0
+          },
+          "2": {
+            "samples": 21,
+            "proved": 21,
+            "pass_rate": 1.0
+          },
+          "3": {
+            "samples": 9,
+            "proved": 9,
+            "pass_rate": 1.0
+          }
+        }
+      }
+    },
+    "negatives": {
+      "gadgets": 2,
+      "samples": 12,
+      "refused": 12,
+      "failed": 0,
+      "soundness_alarms": []
+    },
+    "infrastructure_errors": []
+  }
+}
