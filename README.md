@@ -230,7 +230,7 @@ cargo run -p zkgadget-eval -- --backend claude --budget 5 \
 
 Honest limitations: the suite exercises algebraic gate constraints only (no lookup or permutation arguments — see the scope note above), and samples are independent reruns of the same nondeterministic loop, not seed-controlled.
 
-First full-suite results (claude-sonnet-5, budget 5, build vs. lsp A/B): **build 15/15, lsp 14/15, negatives refused 4/4, zero alarms** — see [`benchmark/RESULTS.md`](benchmark/RESULTS.md) for the per-gadget table and caveats.
+Results so far (claude-sonnet-5, two full-suite runs: a 1-sample A/B + a 3-sample variance run): **118/120 positive sessions proved, negatives refused 16/16, zero alarms**; no measurable quality difference between build and LSP feedback, and range-check-8 is the suite's only sub-1.0 pass@1 cell — see [`benchmark/RESULTS.md`](benchmark/RESULTS.md) for tables and caveats.
 
 ## Docker
 
