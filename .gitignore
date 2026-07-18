@@ -20,10 +20,12 @@ benchmark/results/
 
 # Claude Code (local config, commands, prompts)
 .claude/
-# Ignore local prompt scratch files, but keep the project's system prompt —
-# proof-pilot / scribe-cli and the Docker image depend on prompts/lean-prover.md.
+# Ignore local prompt scratch files, but keep the project's system prompts —
+# proof-pilot / scribe-cli and the Docker image depend on lean-prover.md, and
+# `scribe refute` on lean-refuter.md.
 prompts/*
 !prompts/lean-prover.md
+!prompts/lean-refuter.md
 NOTES.md
 
 # MCP config (local dev)

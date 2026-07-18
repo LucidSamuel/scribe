@@ -47,8 +47,10 @@ its conclusion can fail, and its side-conditions are load-bearing. The probes ar
 derived from the signature, so a spec that drifts back toward vacuity turns the
 build red. Scope: probes need decidable, enumerable instantiations — flat `ZMod p`
 gadget statements qualify; Halva circuit-level theorems (function-typed circuits)
-keep hand-written witnesses instead. The adversarial LLM refuter (C4) remains
-future work.
+keep hand-written witnesses instead. The adversarial LLM refuter (C4) lives on
+the Rust side as `scribe refute`: it emits the *negated* soundness statement at
+a concrete prime and runs an LLM loop hunting for a kernel-checked
+counterexample — the dynamic complement to these static probes.
 -/
 
 open Lean Elab Command Meta

@@ -489,7 +489,9 @@ name = "scribe-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "gadget-ir",
  "halva-bridge",
+ "lean-emit",
  "proof-pilot",
 ]
 

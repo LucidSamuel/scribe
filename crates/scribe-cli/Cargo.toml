@@ -11,5 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+gadget-ir = { path = "../gadget-ir" }
 halva-bridge = { path = "../halva-bridge" }
+lean-emit = { path = "../lean-emit" }
 proof-pilot = { path = "../proof-pilot" }
