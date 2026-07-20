@@ -137,6 +137,28 @@ scribe refute --gadget examples/range-check/gadget.toml \
 
 The gadget's soundness statement is emitted at a concrete small prime, **negated**, and an LLM refuter loop (system prompt `prompts/lean-refuter.md`) tries to prove the negation — i.e. exhibit witness values that satisfy every constraint while violating the spec. A kernel-accepted refutation is exactly as trustworthy as a kernel-accepted proof, and carries its own `#audit_axioms` gate. Exit codes: `2` = **REFUTED** (the circuit is under-constrained or the spec is wrong — the counterexample is in the output file), `0` = **SURVIVED** (no refutation within budget; evidence, not proof), `1` = infrastructure error.
 
+### `scribe judge`
+
+The verdict engine as one command: prove AND attack, and say which side won.
+
+```sh
+scribe judge --gadget examples/range-check/gadget.toml \
+  [--prove-iters N] [--refute-iters M] [--prime P] [--samples-per-iter K]
+```
+
+The prover runs first (a kernel-accepted proof settles the question — no counterexample can exist, and sound gadgets usually prove in an iteration or two). Only if proving exhausts its budget does the adversarial refuter run. The verdict is backed by a kernel-checked artifact whenever it is not UNDETERMINED:
+
+| Exit code | Verdict | Meaning |
+|---|---|---|
+| `0` | **SOUND** | kernel-accepted proof of the spec (path printed) |
+| `1` | **UNDETERMINED** | neither proof nor refutation within budget |
+| `2` | **UNSOUND** | kernel-checked counterexample (path printed) |
+| `3` | — | infrastructure error |
+
+The exit codes are stable and documented so third parties can script `scribe judge` in their own CI.
+
+**Best-of-n sampling.** `--samples-per-iter K` (also on `verify`, `refute`, and `proof-pilot`) fires K attempts per iteration and lets the kernel filter: candidates are deduplicated, tried shortest-first, and the first to build wins. Parallel sampling is soundness-free — a wrong candidate costs a build, never a false acceptance — and the transcript records every candidate plus the acceptance index, so `--replay` determinism is preserved.
+
 ### `scribe init`
 
 Generates the editable Halva extractor project that `scribe verify --circuit` expects.

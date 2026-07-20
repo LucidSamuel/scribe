@@ -61,6 +61,20 @@ enum Commands {
     /// refutation found within the budget; evidence, not proof, of soundness);
     /// 1 = infrastructure error.
     Refute(refute_cmd::RefuteArgs),
+
+    /// Judge a gadget: prove AND attack, emit a verdict.
+    ///
+    /// Runs the prover loop first (a kernel-accepted proof settles the question
+    /// — no counterexample can exist). If proving exhausts its budget, runs the
+    /// adversarial refuter. The verdict is backed by a kernel-checked artifact
+    /// whenever it is SOUND or UNSOUND.
+    ///
+    /// Exit codes (stable — script against them):
+    ///   0 = SOUND        (kernel-accepted proof of the spec)
+    ///   1 = UNDETERMINED (neither proof nor refutation within budget)
+    ///   2 = UNSOUND      (kernel-checked counterexample to the spec)
+    ///   3 = infrastructure error
+    Judge(judge_cmd::JudgeArgs),
 }
 
 mod verify_cmd {
@@ -170,6 +184,11 @@ mod verify_cmd {
         /// Use Lean LSP for structured feedback instead of raw `lake build` text.
         #[arg(long)]
         pub lsp: bool,
+
+        /// Best-of-n: sampled proof attempts per iteration; the kernel filters
+        /// (default: 1). Lake-build mode only.
+        #[arg(long, value_name = "K", default_value = "1")]
+        pub samples_per_iter: u32,
     }
 }
 
@@ -308,6 +327,60 @@ mod refute_cmd {
         /// Transcript log file path (optional).
         #[arg(long, value_name = "FILE")]
         pub transcript: Option<String>,
+
+        /// Best-of-n: sampled refutation attempts per iteration; the kernel
+        /// filters (default: 1).
+        #[arg(long, value_name = "K", default_value = "1")]
+        pub samples_per_iter: u32,
+    }
+}
+
+mod judge_cmd {
+    use clap::Args;
+
+    #[derive(Args)]
+    pub struct JudgeArgs {
+        /// Gadget IR file (TOML) to judge.
+        #[arg(long, value_name = "FILE")]
+        pub gadget: String,
+
+        /// Probe prime for the refutation phase (default: auto from `p > N`
+        /// hypotheses, floor 5).
+        #[arg(long, value_name = "P")]
+        pub prime: Option<u64>,
+
+        /// Maximum prover iterations (default: 5).
+        #[arg(long, value_name = "N", default_value = "5")]
+        pub prove_iters: u32,
+
+        /// Maximum refuter iterations (default: 4).
+        #[arg(long, value_name = "N", default_value = "4")]
+        pub refute_iters: u32,
+
+        /// Best-of-n: sampled attempts per iteration in BOTH phases; the kernel
+        /// filters (default: 1).
+        #[arg(long, value_name = "K", default_value = "1")]
+        pub samples_per_iter: u32,
+
+        /// Lake project directory (default: $LAKE_DIR env var, else `lean`).
+        #[arg(long, value_name = "DIR")]
+        pub lake_dir: Option<String>,
+
+        /// LLM backend to use (default: claude). See `scribe verify --help`.
+        #[arg(long, value_name = "NAME", default_value = "claude")]
+        pub backend: String,
+
+        /// Model name override.
+        #[arg(long, value_name = "MODEL")]
+        pub model: Option<String>,
+
+        /// API key for the selected backend.
+        #[arg(long, value_name = "KEY")]
+        pub api_key: Option<String>,
+
+        /// API base URL override.
+        #[arg(long, value_name = "URL")]
+        pub base_url: Option<String>,
     }
 }
 
@@ -330,6 +403,9 @@ fn main() {
         }
         Commands::Refute(args) => {
             orchestrate::run_refute(args);
+        }
+        Commands::Judge(args) => {
+            orchestrate::run_judge(args);
         }
     }
 }
@@ -474,9 +550,42 @@ mod tests {
     }
 
     #[test]
+    fn judge_args_parse_with_defaults() {
+        let cli =
+            Cli::try_parse_from(["scribe", "judge", "--gadget", "g.toml"]).expect("should parse");
+        if let Commands::Judge(args) = cli.command {
+            assert_eq!(args.gadget, "g.toml");
+            assert_eq!(args.prove_iters, 5);
+            assert_eq!(args.refute_iters, 4);
+            assert_eq!(args.samples_per_iter, 1);
+            assert_eq!(args.prime, None);
+        } else {
+            panic!("expected Judge");
+        }
+
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "judge",
+            "--gadget",
+            "g.toml",
+            "--samples-per-iter",
+            "3",
+            "--prove-iters",
+            "2",
+        ])
+        .expect("should parse");
+        if let Commands::Judge(args) = cli.command {
+            assert_eq!(args.samples_per_iter, 3);
+            assert_eq!(args.prove_iters, 2);
+        } else {
+            panic!("expected Judge");
+        }
+    }
+
+    #[test]
     fn refute_args_parse_with_defaults() {
-        let cli = Cli::try_parse_from(["scribe", "refute", "--gadget", "g.toml"])
-            .expect("should parse");
+        let cli =
+            Cli::try_parse_from(["scribe", "refute", "--gadget", "g.toml"]).expect("should parse");
         if let Commands::Refute(args) = cli.command {
             assert_eq!(args.gadget, "g.toml");
             assert_eq!(args.prime, None); // auto-picked from `p > N` hypotheses

@@ -422,6 +422,8 @@ mod tests {
             goal_states: goals.iter().map(|s| s.to_string()).collect(),
             suggestions: suggestions.iter().map(|s| s.to_string()).collect(),
             patch_applied: applied,
+            candidates: Vec::new(),
+            accepted_sample: None,
         }
     }
 

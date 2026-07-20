@@ -926,7 +926,12 @@ private theorem helper : True := by
         };
         let combined = scaffold_soundness(&halva, &config);
         let re_pos = combined.find(reenable).expect("re-enable present");
-        assert!(combined.find("set_option linter.unusedVariables false").unwrap() < re_pos);
+        assert!(
+            combined
+                .find("set_option linter.unusedVariables false")
+                .unwrap()
+                < re_pos
+        );
         assert!(re_pos < combined.find("def Spec").unwrap());
 
         // Raw mode: same placement, before the snippet body.

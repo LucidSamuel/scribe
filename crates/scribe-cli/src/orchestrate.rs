@@ -13,6 +13,7 @@ use proof_pilot::transcript;
 
 use crate::demo_cmd::DemoArgs;
 use crate::extract;
+use crate::judge_cmd::JudgeArgs;
 use crate::refute_cmd::RefuteArgs;
 use crate::verify_cmd::VerifyArgs;
 
@@ -46,7 +47,12 @@ fn resolve_system_prompt_from(
     explicit: Option<&str>,
     prompts_dir: Option<String>,
 ) -> Option<String> {
-    resolve_prompt_from(explicit, prompts_dir, "lean-prover.md", FALLBACK_SYSTEM_PROMPT)
+    resolve_prompt_from(
+        explicit,
+        prompts_dir,
+        "lean-prover.md",
+        FALLBACK_SYSTEM_PROMPT,
+    )
 }
 
 fn resolve_prompt_from(
@@ -187,6 +193,7 @@ pub fn run_verify(args: VerifyArgs) {
         system_prompt,
         transcript: args.transcript.clone(),
         use_lsp: args.lsp,
+        samples_per_iter: args.samples_per_iter,
     };
 
     let (result, journal) = session::run(&config, backend.as_ref());
@@ -371,6 +378,7 @@ pub fn run_refute(args: RefuteArgs) {
         system_prompt,
         transcript: args.transcript.clone(),
         use_lsp: false,
+        samples_per_iter: args.samples_per_iter,
     };
 
     let (result, _journal) = session::run(&config, backend.as_ref());
@@ -398,6 +406,147 @@ pub fn run_refute(args: RefuteArgs) {
         SessionResult::Failed(msg) => {
             eprintln!("[scribe] fatal error: {msg}");
             process::exit(1);
+        }
+    }
+}
+
+// ── scribe judge ─────────────────────────────────────────────────────────────
+
+/// Judge exit codes — stable and documented so third parties can script
+/// `scribe judge` in their own CI: 0 SOUND, 1 UNDETERMINED, 2 UNSOUND,
+/// 3 infrastructure error.
+const EXIT_SOUND: i32 = 0;
+const EXIT_UNDETERMINED: i32 = 1;
+const EXIT_UNSOUND: i32 = 2;
+const EXIT_INFRA: i32 = 3;
+
+/// Prove AND attack: the dual-sided verdict.
+///
+/// Prover first — a kernel-accepted proof settles the question (no
+/// counterexample can exist), and sound gadgets usually prove in an iteration
+/// or two, so this order minimizes expected cost. Only when proving exhausts
+/// its budget does the adversarial refuter run.
+pub fn run_judge(args: JudgeArgs) {
+    let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
+        eprintln!("error: cannot load gadget {}: {e}", args.gadget);
+        process::exit(EXIT_INFRA);
+    });
+
+    let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
+    let sanitized: String = gadget
+        .name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let backend = make_backend(
+        &args.backend,
+        args.model.clone(),
+        args.api_key.clone(),
+        args.base_url.clone(),
+    );
+    eprintln!("[scribe judge] backend: {}", backend.name());
+
+    let read_prompt = |path: Option<String>| -> Option<String> {
+        path.map(|p| {
+            fs::read_to_string(&p).unwrap_or_else(|e| {
+                eprintln!("error: cannot read system prompt {p}: {e}");
+                process::exit(EXIT_INFRA);
+            })
+        })
+    };
+
+    // ── Phase 1: prove ───────────────────────────────────────────────────────
+    let prove_scaffold = lean_emit::emit_lean(&gadget).unwrap_or_else(|e| {
+        eprintln!("error: cannot emit prover scaffold: {e}");
+        process::exit(EXIT_INFRA);
+    });
+    let prove_path = format!("{lake_dir}/ZkGadgets/Bench/Judge{sanitized}.lean");
+    if let Some(parent) = Path::new(&prove_path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Err(e) = fs::write(&prove_path, &prove_scaffold) {
+        eprintln!("error: cannot write {prove_path}: {e}");
+        process::exit(EXIT_INFRA);
+    }
+    eprintln!(
+        "[scribe judge] phase 1/2 — prove ({} iterations max): {prove_path}",
+        args.prove_iters
+    );
+
+    let prove_config = SessionConfig {
+        lean_file: prove_path.clone(),
+        lake_dir: lake_dir.clone(),
+        max_iterations: args.prove_iters,
+        system_prompt: read_prompt(resolve_system_prompt(None)),
+        transcript: None,
+        use_lsp: false,
+        samples_per_iter: args.samples_per_iter,
+    };
+    match session::run(&prove_config, backend.as_ref()).0 {
+        SessionResult::Proven { iterations } => {
+            eprintln!("[scribe judge] kernel accepted a proof in {iterations} iteration(s)");
+            println!("SOUND: {prove_path}");
+            process::exit(EXIT_SOUND);
+        }
+        SessionResult::Failed(msg) => {
+            eprintln!("[scribe judge] fatal error in prove phase: {msg}");
+            process::exit(EXIT_INFRA);
+        }
+        SessionResult::Exhausted { iterations, .. } => {
+            eprintln!(
+                "[scribe judge] no proof in {iterations} iteration(s) — \
+                 escalating to the refuter"
+            );
+        }
+    }
+
+    // ── Phase 2: refute ──────────────────────────────────────────────────────
+    let prime = args
+        .prime
+        .unwrap_or_else(|| lean_emit::refutation_prime(&gadget, 5));
+    let refute_scaffold = lean_emit::emit_refutation(&gadget, prime).unwrap_or_else(|e| {
+        eprintln!("error: cannot emit refutation scaffold: {e}");
+        process::exit(EXIT_INFRA);
+    });
+    let refute_path = format!("{lake_dir}/ZkGadgets/Bench/Refute{sanitized}.lean");
+    if let Err(e) = fs::write(&refute_path, &refute_scaffold) {
+        eprintln!("error: cannot write {refute_path}: {e}");
+        process::exit(EXIT_INFRA);
+    }
+    eprintln!(
+        "[scribe judge] phase 2/2 — refute at p = {prime} ({} iterations max): {refute_path}",
+        args.refute_iters
+    );
+
+    let refute_config = SessionConfig {
+        lean_file: refute_path.clone(),
+        lake_dir,
+        max_iterations: args.refute_iters,
+        system_prompt: read_prompt(resolve_refuter_prompt(None)),
+        transcript: None,
+        use_lsp: false,
+        samples_per_iter: args.samples_per_iter,
+    };
+    match session::run(&refute_config, backend.as_ref()).0 {
+        SessionResult::Proven { iterations } => {
+            eprintln!(
+                "[scribe judge] ⚠ kernel-checked counterexample found in {iterations} \
+                 iteration(s) at p = {prime}"
+            );
+            println!("UNSOUND: {refute_path}");
+            process::exit(EXIT_UNSOUND);
+        }
+        SessionResult::Failed(msg) => {
+            eprintln!("[scribe judge] fatal error in refute phase: {msg}");
+            process::exit(EXIT_INFRA);
+        }
+        SessionResult::Exhausted { .. } => {
+            eprintln!(
+                "[scribe judge] no proof and no refutation within budget — \
+                 the spec's status is genuinely open at these budgets"
+            );
+            println!("UNDETERMINED: {}", args.gadget);
+            process::exit(EXIT_UNDETERMINED);
         }
     }
 }
@@ -536,6 +685,7 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
         system_prompt,
         transcript: None,
         use_lsp: false,
+        samples_per_iter: 1,
     };
 
     let (result, _journal) = session::run(&config, backend.as_ref());

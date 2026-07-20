@@ -8,7 +8,11 @@
 use std::process::Command;
 
 /// Trait for LLM backends that can complete proof attempts.
-pub trait Backend {
+///
+/// `Send + Sync` so best-of-n sampling can issue concurrent `complete` calls
+/// from scoped threads; implementations take `&self` and hold no interior
+/// mutability.
+pub trait Backend: Send + Sync {
     /// Send a prompt to the model and return the response text.
     fn complete(&self, prompt: &str, system_prompt: Option<&str>) -> Result<String, BackendError>;
 

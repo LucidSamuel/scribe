@@ -419,6 +419,7 @@ fn main() {
                     system_prompt: system_prompt.clone(),
                     transcript: Some(transcript_path),
                     use_lsp: *mode == Mode::Lsp,
+                    samples_per_iter: 1,
                 };
 
                 eprint!(
