@@ -289,90 +289,89 @@ pub fn resolve_api_key(explicit: Option<&str>, env_var: &str) -> Option<String> 
 }
 
 /// Require an API key, resolving from an explicit value or environment variable.
-///
-/// Prints an error and calls `std::process::exit(1)` if neither is available.
-pub fn require_api_key(explicit: Option<&str>, env_var: &str, backend: &str) -> String {
-    resolve_api_key(explicit, env_var).unwrap_or_else(|| {
-        eprintln!("{backend} backend requires --api-key or {env_var} env var");
-        std::process::exit(1);
-    })
+pub fn require_api_key(
+    explicit: Option<&str>,
+    env_var: &str,
+    backend: &str,
+) -> Result<String, String> {
+    resolve_api_key(explicit, env_var)
+        .ok_or_else(|| format!("{backend} backend requires --api-key or {env_var} env var"))
 }
 
-/// Construct a `Box<dyn Backend>` from a name, optional model, API key, and base URL.
-///
-/// Recognized names: `claude` / `claude-cli`, `anthropic`, `openai`, `leanstral`,
-/// `leanstral-local`, `openai-compat`.
-/// Exits the process with a diagnostic message if the name is unknown or required
-/// parameters (key, URL) are missing.
 /// Default model for the `claude`/`anthropic` backends when `--model` is not
 /// given. Kept in one place because retired models fail at request time (e.g.
 /// claude-sonnet-4-20250514 was retired 2026-06-15 and broke every default run).
 pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-5";
 
+/// Construct a `Box<dyn Backend>` from a name, optional model, API key, and base URL.
+///
+/// Recognized names: `claude` / `claude-cli`, `anthropic`, `openai`, `leanstral`,
+/// `leanstral-local`, `openai-compat`.
+///
+/// Returns `Err` with a diagnostic message if the name is unknown or required
+/// parameters (key, URL) are missing — the CALLER owns the exit code, because
+/// different commands document different infrastructure-error codes (`scribe
+/// judge` exits 3, `scribe refute` exits 1).
 pub fn make_backend(
     name: &str,
     model: Option<String>,
     api_key: Option<String>,
     base_url: Option<String>,
-) -> Box<dyn Backend> {
+) -> Result<Box<dyn Backend>, String> {
     match name {
         "claude" | "claude-cli" => {
             let m = model.unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.into());
-            Box::new(ClaudeCli::new(m))
+            Ok(Box::new(ClaudeCli::new(m)))
         }
         "anthropic" => {
             let m = model.unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.into());
-            let key = require_api_key(api_key.as_deref(), "ANTHROPIC_API_KEY", "anthropic");
+            let key = require_api_key(api_key.as_deref(), "ANTHROPIC_API_KEY", "anthropic")?;
             let mut b = AnthropicApi::new(m, key);
             if let Some(url) = base_url {
                 b = b.with_base_url(url);
             }
-            Box::new(b)
+            Ok(Box::new(b))
         }
         "openai" => {
             let m = model.unwrap_or_else(|| "gpt-4o".into());
-            let key = require_api_key(api_key.as_deref(), "OPENAI_API_KEY", "openai");
+            let key = require_api_key(api_key.as_deref(), "OPENAI_API_KEY", "openai")?;
             let url = base_url.unwrap_or_else(|| "https://api.openai.com/v1".into());
-            Box::new(
+            Ok(Box::new(
                 OpenAiCompatible::new(m, Some(key), url)
                     .with_completion_tokens()
                     .with_name("openai".into()),
-            )
+            ))
         }
         "leanstral" => {
             let m = model.unwrap_or_else(|| "leanstral-v1".into());
-            let key = require_api_key(api_key.as_deref(), "LEANSTRAL_API_KEY", "leanstral");
-            let url = base_url.unwrap_or_else(|| {
-                eprintln!(
-                    "leanstral backend requires --base-url (e.g. https://api.leanstral.ai/v1)"
-                );
-                std::process::exit(1);
-            });
-            Box::new(OpenAiCompatible::new(m, Some(key), url).with_name("leanstral".into()))
+            let key = require_api_key(api_key.as_deref(), "LEANSTRAL_API_KEY", "leanstral")?;
+            let url = base_url.ok_or_else(|| {
+                "leanstral backend requires --base-url (e.g. https://api.leanstral.ai/v1)"
+                    .to_string()
+            })?;
+            Ok(Box::new(
+                OpenAiCompatible::new(m, Some(key), url).with_name("leanstral".into()),
+            ))
         }
         "leanstral-local" => {
             let m = model.unwrap_or_else(|| "leanstral-v1".into());
             let url = base_url.unwrap_or_else(|| "http://localhost:8000/v1".into());
-            Box::new(OpenAiCompatible::new(m, api_key, url).with_name("leanstral-local".into()))
+            Ok(Box::new(
+                OpenAiCompatible::new(m, api_key, url).with_name("leanstral-local".into()),
+            ))
         }
         "openai-compat" => {
-            let m = model.unwrap_or_else(|| {
-                eprintln!("openai-compat backend requires --model");
-                std::process::exit(1);
-            });
-            let url = base_url.unwrap_or_else(|| {
-                eprintln!("openai-compat backend requires --base-url");
-                std::process::exit(1);
-            });
-            Box::new(OpenAiCompatible::new(m, api_key, url).with_name("openai-compat".into()))
+            let m = model.ok_or_else(|| "openai-compat backend requires --model".to_string())?;
+            let url =
+                base_url.ok_or_else(|| "openai-compat backend requires --base-url".to_string())?;
+            Ok(Box::new(
+                OpenAiCompatible::new(m, api_key, url).with_name("openai-compat".into()),
+            ))
         }
-        other => {
-            eprintln!("unknown backend: {other}");
-            eprintln!(
-                "available: claude, anthropic, openai, leanstral, leanstral-local, openai-compat"
-            );
-            std::process::exit(1);
-        }
+        other => Err(format!(
+            "unknown backend: {other}\navailable: claude, anthropic, openai, leanstral, \
+             leanstral-local, openai-compat"
+        )),
     }
 }
 

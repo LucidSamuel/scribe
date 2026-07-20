@@ -19,7 +19,9 @@ pub struct CandidateRecord {
     pub llm_response: String,
     /// What happened to this candidate: `"accepted"`, `"build_failed"`,
     /// `"patch_rejected"`, `"duplicate"` (identical patched source as an earlier
-    /// sample), or `"not_tried"` (an earlier candidate was accepted first).
+    /// sample), `"not_tried"` (an earlier candidate was accepted first), or
+    /// `"request_failed"` (the backend call itself failed — `llm_response` is
+    /// empty and the error is in `build_output`).
     pub status: String,
     /// Build output for candidates that were built; empty otherwise.
     pub build_output: String,

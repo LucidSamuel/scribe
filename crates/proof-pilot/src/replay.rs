@@ -202,8 +202,8 @@ mod tests {
                     goal_states: vec![],
                     suggestions: vec![],
                     patch_applied: true,
-                candidates: Vec::new(),
-                accepted_sample: None,
+                    candidates: Vec::new(),
+                    accepted_sample: None,
                 },
                 IterationRecord {
                     index: 2,
@@ -216,8 +216,8 @@ mod tests {
                     goal_states: vec![],
                     suggestions: vec![],
                     patch_applied: true,
-                candidates: Vec::new(),
-                accepted_sample: None,
+                    candidates: Vec::new(),
+                    accepted_sample: None,
                 },
             ],
         }

@@ -110,8 +110,8 @@ mod tests {
                     goal_states: vec!["⊢ True".to_string()],
                     suggestions: vec!["try trivial".to_string()],
                     patch_applied: true,
-                candidates: Vec::new(),
-                accepted_sample: None,
+                    candidates: Vec::new(),
+                    accepted_sample: None,
                 },
                 IterationRecord {
                     index: 2,
@@ -123,8 +123,8 @@ mod tests {
                     goal_states: vec![],
                     suggestions: vec![],
                     patch_applied: false,
-                candidates: Vec::new(),
-                accepted_sample: None,
+                    candidates: Vec::new(),
+                    accepted_sample: None,
                 },
             ],
         }

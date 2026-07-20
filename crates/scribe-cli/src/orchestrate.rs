@@ -183,7 +183,11 @@ pub fn run_verify(args: VerifyArgs) {
         args.model.clone(),
         args.api_key.clone(),
         args.base_url.clone(),
-    );
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
     eprintln!("[scribe] backend: {}", backend.name());
 
     let config = SessionConfig {
@@ -368,7 +372,11 @@ pub fn run_refute(args: RefuteArgs) {
         args.model.clone(),
         args.api_key.clone(),
         args.base_url.clone(),
-    );
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
     eprintln!("[scribe] refuter backend: {}", backend.name());
 
     let config = SessionConfig {
@@ -443,7 +451,11 @@ pub fn run_judge(args: JudgeArgs) {
         args.model.clone(),
         args.api_key.clone(),
         args.base_url.clone(),
-    );
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(EXIT_INFRA);
+    });
     eprintln!("[scribe judge] backend: {}", backend.name());
 
     let read_prompt = |path: Option<String>| -> Option<String> {
@@ -675,7 +687,11 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
         args.model.clone(),
         args.api_key.clone(),
         args.base_url.clone(),
-    );
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
     eprintln!("[scribe demo --live] backend: {}", backend.name());
 
     let config = SessionConfig {

@@ -183,7 +183,10 @@ fn main() {
     });
 
     // Construct backend
-    let backend = make_backend(&backend_name, model, api_key, base_url);
+    let backend = make_backend(&backend_name, model, api_key, base_url).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    });
 
     eprintln!("[proof-pilot] backend: {}", backend.name());
 

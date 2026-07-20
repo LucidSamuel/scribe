@@ -185,7 +185,10 @@ fn main() {
         })
     });
 
-    let backend = make_backend(&backend_name, model, api_key, base_url);
+    let backend = make_backend(&backend_name, model, api_key, base_url).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
 
     let config = SessionConfig {
         lean_file: out_path.clone(),
