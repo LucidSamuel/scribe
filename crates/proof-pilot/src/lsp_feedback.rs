@@ -5,7 +5,7 @@
 //! Lean language server — replacing flat `lake build` text parsing.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use serde_json::Value;
@@ -228,7 +228,7 @@ const LSP_SERVER_SOURCE: &str = include_str!("../scripts/lsp-server.py");
 
 fn find_script() -> Result<String, String> {
     // Explicit override, then repo-local copies (development), then the
-    // embedded source materialized into a stable per-user temp path.
+    // embedded source materialized into a stable per-user cache path.
     if let Ok(path) = std::env::var("PROOF_PILOT_LSP_SERVER") {
         if Path::new(&path).exists() {
             return Ok(path);
@@ -247,12 +247,45 @@ fn find_script() -> Result<String, String> {
             return Ok(c.to_string());
         }
     }
-    let dir = std::env::temp_dir().join("proof-pilot");
+    let dir = user_private_cache_dir()?.join("lsp");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    set_private_dir_permissions(&dir)?;
     let path = dir.join("lsp-server.py");
     std::fs::write(&path, LSP_SERVER_SOURCE)
         .map_err(|e| format!("write embedded lsp-server.py: {e}"))?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+fn user_private_cache_dir() -> Result<PathBuf, String> {
+    let root = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("LOCALAPPDATA").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .map(|home| PathBuf::from(home).join("AppData").join("Local"))
+        })
+        .ok_or_else(|| {
+            "cannot determine a user-private cache directory for embedded lsp-server.py".to_string()
+        })?;
+    Ok(root.join("proof-pilot"))
+}
+
+#[cfg(unix)]
+fn set_private_dir_permissions(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = std::fs::metadata(dir)
+        .map_err(|e| format!("stat {}: {e}", dir.display()))?
+        .permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(dir, permissions)
+        .map_err(|e| format!("chmod 700 {}: {e}", dir.display()))
+}
+
+#[cfg(not(unix))]
+fn set_private_dir_permissions(_dir: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn parse_feedback(json_str: &str) -> Result<LspFeedback, String> {
@@ -670,6 +703,16 @@ mod tests {
             .expect_err("search errors must not be treated as empty results");
 
         assert!(err.contains("loogle unavailable"));
+    }
+
+    #[test]
+    fn embedded_lsp_cache_avoids_shared_tmp_default() {
+        let cache_dir = user_private_cache_dir().expect("cache dir should resolve in tests");
+        assert_eq!(
+            cache_dir.file_name().and_then(|s| s.to_str()),
+            Some("proof-pilot")
+        );
+        assert_ne!(cache_dir, std::env::temp_dir().join("proof-pilot"));
     }
 
     #[test]

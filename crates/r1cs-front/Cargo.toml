@@ -1,0 +1,11 @@
+[package]
+name = "r1cs-front"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "circom .r1cs / .sym front-end: parse R1CS binaries into scribe's gadget IR"
+
+[dependencies]
+gadget-ir = { path = "../gadget-ir" }
+num-bigint = "0.4"
+num-traits = "0.2"

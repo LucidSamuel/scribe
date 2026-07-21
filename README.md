@@ -45,11 +45,12 @@ Three properties make this trustworthy:
 
 scribe is a small Rust workspace. The pipeline runs IR → Lean scaffold → LLM proof loop → kernel-accepted `.lean`:
 
-1. **`gadget-ir`**: a minimal IR for polynomial constraints over a prime field (TOML → struct).
-2. **`lean-emit`**: reads the IR and emits a Lean 4 file with the theorem statement and a `sorry`.
-3. **`proof-pilot`**: drives an LLM backend in a loop: edit the proof → compile the target file → read the errors → repeat. Stops when the kernel accepts or the budget is exhausted.
-4. **`halva-bridge`**: combines a Halva halo2 extraction with a user specification and (optionally) sends the resulting theorem to `proof-pilot`.
-5. **`scribe-cli`**: the top-level `scribe` binary, with `verify`, `init`, and `demo` subcommands.
+1. **`gadget-ir`**: the internal IR for polynomial constraints over a prime field. TOML is its *fixture format* — hand-authorable and PR-reviewable (which is what makes the negative gadgets auditable); real circuits enter through the front-ends below.
+2. **`r1cs-front`**: the circom front-end — parses `.r1cs` binaries (+ `.sym` signal names) and expands each rank-1 row into the IR (`scribe import-r1cs`).
+3. **`halva-bridge`**: the halo2 front-end — combines a Halva extraction with a user specification and (optionally) sends the resulting theorem to `proof-pilot`.
+4. **`lean-emit`**: reads the IR and emits a Lean 4 file with the theorem statement (or its negation, for refutation) and a `sorry`.
+5. **`proof-pilot`**: drives an LLM backend in a loop: edit the proof → compile the target file → read the errors → repeat. Stops when the kernel accepts or the budget is exhausted.
+6. **`scribe-cli`**: the top-level `scribe` binary: `verify`, `refute`, `judge`, `import-r1cs`, `init`, `demo`.
 
 ## Getting Started
 
@@ -158,6 +159,19 @@ The prover runs first (a kernel-accepted proof settles the question — no count
 The exit codes are stable and documented so third parties can script `scribe judge` in their own CI.
 
 **Best-of-n sampling.** `--samples-per-iter K` (also on `verify`, `refute`, and `proof-pilot`) fires K attempts per iteration and lets the kernel filter: candidates are deduplicated, tried shortest-first, and the first to build wins. Parallel sampling is soundness-free — a wrong candidate costs a build, never a false acceptance — and the transcript records every candidate plus the acceptance index, so `--replay` determinism is preserved.
+
+### `scribe import-r1cs`
+
+The circom front-end: from a compiled circuit to a judged verdict.
+
+```sh
+circom mycircuit.circom --r1cs --sym          # (any existing circom toolchain)
+scribe import-r1cs --r1cs mycircuit.r1cs --sym mycircuit.sym \
+  --spec "ZMod.val in_ < 4" -o mycircuit.gadget.toml
+scribe judge --gadget mycircuit.gadget.toml   # SOUND / UNSOUND / UNDETERMINED
+```
+
+Each rank-1 row `⟨A,w⟩·⟨B,w⟩ = ⟨C,w⟩` is expanded exactly into the sum-of-products IR; coefficients are canonicalized to signed form (`p − 1` → `-1`); signal names come from the `.sym` map (sanitized for Lean — `main.in` becomes `in_`). The emitted TOML is the reviewable artifact: the constraints are machine-derived, but the `soundness_spec` is the **human trust root** — R1CS carries constraints, never intent. Scope (v1): circuits whose canonicalized coefficients are small (bit-decomposition, boolean, mux — i.e. most of circomlib's core); circuits whose arithmetic only means something at the exact BN254 prime (inverses as constants) are rejected with a clear error rather than mistranslated.
 
 ### `scribe init`
 
@@ -290,11 +304,12 @@ Tags: `latest` (main branch), `sha-<commit>` (per-commit), `v<semver>` (releases
 
 ```
 crates/
-  gadget-ir/       constraint system IR + TOML deserialization
-  lean-emit/       IR → Lean 4 scaffold with sorry
-  proof-pilot/     LLM proof loop (patcher, lean runner, session logging, transcript, replay)
-  halva-bridge/    Halva extraction + semantic specification bridge
-  scribe-cli/      top-level `scribe` binary (verify + init + demo)
+  gadget-ir/       constraint system IR (TOML fixtures)
+  r1cs-front/      circom front-end: .r1cs/.sym → gadget IR
+  lean-emit/       IR → Lean 4 scaffold with sorry (prover + refutation modes)
+  proof-pilot/     LLM proof loop (patcher, lean runner, best-of-n, transcript, replay)
+  halva-bridge/    halo2 front-end: Halva extraction + semantic specification bridge
+  scribe-cli/      top-level `scribe` binary (verify, refute, judge, import-r1cs, init, demo)
   bench/           ZKGadgetEval benchmark suite
 lean/ZkGadgets/    the proven theorems (Field + 8 gadgets)
 examples/          IR / extraction + spec inputs for every gadget

@@ -75,6 +75,17 @@ enum Commands {
     ///   2 = UNSOUND      (kernel-checked counterexample to the spec)
     ///   3 = infrastructure error
     Judge(judge_cmd::JudgeArgs),
+
+    /// Import a circom .r1cs circuit (plus its .sym signal map) as a
+    /// reviewable gadget TOML.
+    ///
+    /// Parses the iden3 R1CS binary format, expands each rank-1 row into
+    /// scribe's sum-of-products IR (coefficients canonicalized to signed
+    /// form), and writes gadget TOML — the auditable artifact the rest of the
+    /// pipeline consumes: `scribe judge --gadget out.toml`, `scribe refute`,
+    /// the eval suite. R1CS carries constraints, never intent, so the
+    /// soundness spec is yours to state via --spec.
+    ImportR1cs(import_r1cs_cmd::ImportR1csArgs),
 }
 
 mod verify_cmd {
@@ -384,6 +395,48 @@ mod judge_cmd {
     }
 }
 
+mod import_r1cs_cmd {
+    use clap::Args;
+
+    #[derive(Args)]
+    pub struct ImportR1csArgs {
+        /// Path to the .r1cs binary (circom --r1cs output).
+        #[arg(long, value_name = "FILE")]
+        pub r1cs: String,
+
+        /// Path to the companion .sym signal map (circom --sym output).
+        /// Optional; without it, witnesses are named w<wire>.
+        #[arg(long, value_name = "FILE")]
+        pub sym: Option<String>,
+
+        /// Soundness spec: a Lean proposition over the witness names
+        /// (e.g. "ZMod.val in_ < 4"). Omitting it emits TOML without a spec,
+        /// which downstream commands will refuse to judge — the spec is the
+        /// human trust root, not something R1CS can supply.
+        #[arg(long, value_name = "EXPR")]
+        pub spec: Option<String>,
+
+        /// Gadget name (default: the .r1cs file stem).
+        #[arg(long, value_name = "NAME")]
+        pub name: Option<String>,
+
+        /// Extra hypothesis for the theorem, repeatable, as NAME:LEAN_TYPE
+        /// (e.g. "hp:p > 4"). Use for load-bearing field-size bounds.
+        #[arg(long = "hypothesis", value_name = "NAME:TYPE")]
+        pub hypotheses: Vec<String>,
+
+        /// Reject canonical coefficients wider than this many bits (circuits
+        /// whose arithmetic only means something at the exact header prime
+        /// need prime-pinned emission, which is not supported yet).
+        #[arg(long, value_name = "BITS", default_value = "64")]
+        pub max_coeff_bits: u64,
+
+        /// Output TOML path (default: <r1cs stem>.gadget.toml next to input).
+        #[arg(short = 'o', long, value_name = "FILE")]
+        pub output: Option<String>,
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -406,6 +459,9 @@ fn main() {
         }
         Commands::Judge(args) => {
             orchestrate::run_judge(args);
+        }
+        Commands::ImportR1cs(args) => {
+            orchestrate::run_import_r1cs(args);
         }
     }
 }
