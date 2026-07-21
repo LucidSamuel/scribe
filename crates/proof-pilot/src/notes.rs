@@ -5,7 +5,24 @@
 
 use crate::journal::SessionJournal;
 
-/// Render a `SessionJournal` as a Markdown "notes" document.
+/// Embedder-supplied styling for the notes document: worked-example citations
+/// keyed by guidance pattern, appended to the matching guidance block. The
+/// crate's own guidance is domain-generic; a host project (e.g. scribe) points
+/// each pattern at its own solved-proof corpus.
+///
+/// Recognized pattern keys: `"linarith_zmod"`, `"zero_divisor"`,
+/// `"zmod_unsolved"`, `"fin_sums"`, `"unsolved_generic"`. The
+/// `reference_library` line is appended to the generic fallback checklist.
+#[derive(Default)]
+pub struct NotesStyle {
+    /// Pattern key → citation sentence (e.g. "See `lean/ZkGadgets/RangeCheck.lean` …").
+    pub citations: std::collections::BTreeMap<String, String>,
+    /// Closing pointer to a reference corpus of solved proofs.
+    pub reference_library: Option<String>,
+}
+
+/// Render a `SessionJournal` as a Markdown "notes" document with generic,
+/// domain-neutral guidance (no project-specific citations).
 ///
 /// The document contains:
 /// 1. Title, theorem, and final outcome.
@@ -13,6 +30,11 @@ use crate::journal::SessionJournal;
 /// 3. Last ≤ 3 iterations: source diff, build errors, patch status.
 /// 4. Suggested next steps with tactic references.
 pub fn render_notes(journal: &SessionJournal) -> String {
+    render_notes_styled(journal, &NotesStyle::default())
+}
+
+/// `render_notes` with embedder-supplied worked-example citations.
+pub fn render_notes_styled(journal: &SessionJournal, style: &NotesStyle) -> String {
     let mut out = String::new();
 
     // ── 1. Header ────────────────────────────────────────────────────────────
@@ -66,7 +88,7 @@ pub fn render_notes(journal: &SessionJournal) -> String {
     }
 
     // Plain-English guidance based on error/goal patterns.
-    let guidance = pick_guidance(last_errors, &last_goals);
+    let guidance = pick_guidance(last_errors, &last_goals, style);
     out.push_str("### Guidance\n\n");
     out.push_str(&guidance);
     out.push_str("\n\n");
@@ -121,7 +143,7 @@ pub fn render_notes(journal: &SessionJournal) -> String {
         .take(5)
         .collect();
 
-    let tactic_suggestions = pick_tactic_suggestions(last_errors, &last_goals);
+    let tactic_suggestions = pick_tactic_suggestions(last_errors, &last_goals, style);
     out.push_str(&tactic_suggestions);
     out.push('\n');
 
@@ -152,48 +174,61 @@ fn outcome_label(outcome: &str) -> &str {
 /// Map common error/goal patterns to actionable guidance.
 ///
 /// Matching order matters — more specific patterns first.
-fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
+fn pick_guidance(build_errors: &str, goal_states: &[&str], style: &NotesStyle) -> String {
+    let cite = |key: &str, text: String| -> String {
+        match style.citations.get(key) {
+            Some(c) => format!("{text} {c}"),
+            None => text,
+        }
+    };
     let combined = format!("{build_errors}\n{}", goal_states.join("\n"));
 
     if combined.contains("linarith") {
-        return "**`linarith` does not work on `ZMod p`** — the field is not linearly ordered. \
-                Instead, try `linear_combination <expr>` to derive equalities by arithmetic, \
-                or `field_simp` followed by `ring` for purely algebraic goals. \
-                See `lean/ZkGadgets/RangeCheck.lean` for a worked example that uses \
-                `linear_combination` to close ZMod goals."
-            .to_string();
+        return cite(
+            "linarith_zmod",
+            "**`linarith` does not work on `ZMod p`** — the field is not linearly ordered. \
+             Instead, try `linear_combination <expr>` to derive equalities by arithmetic, \
+             or `field_simp` followed by `ring` for purely algebraic goals."
+                .to_string(),
+        );
     }
 
     if combined.contains("mul_eq_zero") || combined.contains("IsUnit") {
-        return "**Goal involves a zero-divisor argument.** \
-                In a prime field `ZMod p`, use `mul_eq_zero.mp h` to case-split: \
-                `h : a * b = 0` gives you `a = 0 ∨ b = 0`. \
-                You need `haveI : Fact (Nat.Prime p) := ⟨p_prime_proof⟩` in scope, \
-                which unlocks `NoZeroDivisors`. \
-                See `lean/ZkGadgets/HalvaRangeCheck.lean` for the full pattern."
-            .to_string();
+        return cite(
+            "zero_divisor",
+            "**Goal involves a zero-divisor argument.** \
+             In a prime field `ZMod p`, use `mul_eq_zero.mp h` to case-split: \
+             `h : a * b = 0` gives you `a = 0 ∨ b = 0`. \
+             You need `haveI : Fact (Nat.Prime p) := ⟨p_prime_proof⟩` in scope, \
+             which unlocks `NoZeroDivisors`."
+                .to_string(),
+        );
     }
 
     if combined.contains("ZMod") && combined.contains("unsolved goals") {
-        return "**Unsolved goals in `ZMod p`.** \
-                Common moves: \n\
-                - `rcases h01 i with h | h <;> simp [h]` to case-split bit-boolean hypotheses.\n\
-                - `push_cast` to coerce `ℕ` literals into `ZMod p` before `ring`.\n\
-                - `linear_combination <expr>` when the goal is a linear identity.\n\
-                - `norm_num` for concrete numeric equalities.\n\
-                See `lean/ZkGadgets/RangeCheck.lean` (the `hcast` block) for an example \
-                of coercing natural-number bits into `ZMod p`."
-            .to_string();
+        return cite(
+            "zmod_unsolved",
+            "**Unsolved goals in `ZMod p`.** \
+             Common moves: \n\
+             - `rcases h01 i with h | h <;> simp [h]` to case-split bit-boolean hypotheses.\n\
+             - `push_cast` to coerce `ℕ` literals into `ZMod p` before `ring`.\n\
+             - `linear_combination <expr>` when the goal is a linear identity.\n\
+             - `norm_num` for concrete numeric equalities.\n"
+                .to_string(),
+        );
     }
 
     if combined.contains("unsolved goals")
         && (combined.contains("Fin") || combined.contains("Finset"))
     {
-        return "**Unsolved goals involving `Fin` or `Finset`.** \
-                Try `Finset.sum_le_sum` for bounding sums, `Fin.sum_univ_succ` to unroll \
-                finite sums by induction, and `omega` for the resulting arithmetic on `ℕ`. \
-                `simp only [Fin.val_zero, Fin.val_succ]` often clears `Fin` coercions. \
-                See `lean/ZkGadgets/RangeCheck.lean` (the `hlt` block) for a complete worked example.".to_string();
+        return cite(
+            "fin_sums",
+            "**Unsolved goals involving `Fin` or `Finset`.** \
+             Try `Finset.sum_le_sum` for bounding sums, `Fin.sum_univ_succ` to unroll \
+             finite sums by induction, and `omega` for the resulting arithmetic on `ℕ`. \
+             `simp only [Fin.val_zero, Fin.val_succ]` often clears `Fin` coercions."
+                .to_string(),
+        );
     }
 
     if combined.contains("unknown identifier") || combined.contains("unknown tactic") {
@@ -216,14 +251,16 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
     }
 
     if combined.contains("unsolved goals") {
-        return "**Unsolved goals remain.** \
-                Try `exact?` or `apply?` to let Lean suggest a closing lemma. \
-                `simp` with the relevant hypotheses often closes simple goals: `simp [h1, h2]`. \
-                For ring-equalities in a field, `ring` or `field_simp; ring` frequently works. \
-                For boolean facts (bit = 0 ∨ bit = 1), use `rcases` to split on cases \
-                and close each branch with `simp [h]`. \
-                See `lean/ZkGadgets/RangeCheck.lean` for worked patterns."
-            .to_string();
+        return cite(
+            "unsolved_generic",
+            "**Unsolved goals remain.** \
+             Try `exact?` or `apply?` to let Lean suggest a closing lemma. \
+             `simp` with the relevant hypotheses often closes simple goals: `simp [h1, h2]`. \
+             For ring-equalities in a field, `ring` or `field_simp; ring` frequently works. \
+             For boolean facts (bit = 0 ∨ bit = 1), use `rcases` to split on cases \
+             and close each branch with `simp [h]`."
+                .to_string(),
+        );
     }
 
     if combined.contains("failed to synthesize") || combined.contains("instance") {
@@ -236,26 +273,27 @@ fn pick_guidance(build_errors: &str, goal_states: &[&str]) -> String {
     }
 
     // Generic fallback
-    "**No specific pattern matched.** General checklist:\n\
+    let mut fallback = "**No specific pattern matched.** General checklist:\n\
      - Inspect the goal state carefully: what is on each side of `⊢`?\n\
      - Try `simp`, `ring`, `linarith` (only on ordered types), or `omega` (for `ℕ`/`ℤ`).\n\
      - For field arithmetic, `linear_combination` can close many goals that `ring` cannot.\n\
-     - When stuck, add `have h : <intermediate claim> := by <proof>` to build up evidence.\n\
-     - The proven gadgets in `lean/ZkGadgets/` are your reference library — \
-       `RangeCheck.lean`, `ConditionalSelect.lean`, `PoseidonSbox.lean`, \
-       `NonzeroCheck.lean`, `EdwardsAddition.lean`."
-        .to_string()
+     - When stuck, add `have h : <intermediate claim> := by <proof>` to build up evidence."
+        .to_string();
+    if let Some(lib) = &style.reference_library {
+        fallback.push_str(&format!("\n     - {lib}"));
+    }
+    fallback
 }
 
 // ─── Tactic suggestions ───────────────────────────────────────────────────────
 
-fn pick_tactic_suggestions(build_errors: &str, goal_states: &[&str]) -> String {
+fn pick_tactic_suggestions(build_errors: &str, goal_states: &[&str], style: &NotesStyle) -> String {
     let combined = format!("{build_errors}\n{}", goal_states.join("\n"));
 
     let mut items: Vec<&str> = Vec::new();
 
     if combined.contains("linarith") || combined.contains("ZMod") {
-        items.push("Replace `linarith` with `linear_combination <expr>` for ZMod goals (see `lean/ZkGadgets/RangeCheck.lean`).");
+        items.push("Replace `linarith` with `linear_combination <expr>` for ZMod goals.");
         items.push("Use `field_simp; ring` for purely algebraic equalities in a prime field.");
     }
 
@@ -281,13 +319,18 @@ fn pick_tactic_suggestions(build_errors: &str, goal_states: &[&str]) -> String {
         items.push("Add `haveI : Fact (Nat.Prime p) := ⟨p_prime_proof⟩` at the top of the proof to unlock field instances.");
     }
 
-    if items.is_empty() {
-        items.push("Try `exact?`, `apply?`, or `simp?` to let Lean suggest the next step.");
-        items.push("Consult `lean/ZkGadgets/RangeCheck.lean` for a fully worked gadget proof.");
+    let mut owned_items: Vec<String> = items.iter().map(|s| s.to_string()).collect();
+    if owned_items.is_empty() {
+        owned_items.push(
+            "Try `exact?`, `apply?`, or `simp?` to let Lean suggest the next step.".to_string(),
+        );
+        if let Some(lib) = &style.reference_library {
+            owned_items.push(format!("Consult {lib}"));
+        }
     }
 
     let mut out = String::new();
-    for item in &items {
+    for item in &owned_items {
         out.push_str(&format!("- {item}\n"));
     }
     out
@@ -475,15 +518,28 @@ mod tests {
             false,
         );
         let journal = make_journal("exhausted", vec![iter]);
-        let notes = render_notes(&journal);
 
+        // Generic rendering: domain-neutral guidance, no project citations.
+        let notes = render_notes(&journal);
         assert!(
             notes.contains("linear_combination"),
             "must suggest linear_combination for linarith errors"
         );
         assert!(
-            notes.contains("RangeCheck.lean"),
-            "must cite RangeCheck.lean"
+            !notes.contains("RangeCheck.lean"),
+            "generic notes must not cite a host project's corpus"
+        );
+
+        // Styled rendering: the embedder's citation is appended to the pattern.
+        let mut style = NotesStyle::default();
+        style.citations.insert(
+            "linarith_zmod".to_string(),
+            "See `lean/ZkGadgets/RangeCheck.lean` for a worked example.".to_string(),
+        );
+        let styled = render_notes_styled(&journal, &style);
+        assert!(
+            styled.contains("lean/ZkGadgets/RangeCheck.lean"),
+            "styled notes must carry the embedder's citation"
         );
     }
 

@@ -221,7 +221,22 @@ impl Drop for LspBridge {
     }
 }
 
+/// The Python LSP bridge, embedded so the published crate is self-contained.
+/// (The canonical copy lives in the crate at scripts/lsp-server.py; the scribe
+/// repo also keeps one at the repo root for direct use.)
+const LSP_SERVER_SOURCE: &str = include_str!("../scripts/lsp-server.py");
+
 fn find_script() -> Result<String, String> {
+    // Explicit override, then repo-local copies (development), then the
+    // embedded source materialized into a stable per-user temp path.
+    if let Ok(path) = std::env::var("PROOF_PILOT_LSP_SERVER") {
+        if Path::new(&path).exists() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "PROOF_PILOT_LSP_SERVER points at a missing file: {path}"
+        ));
+    }
     let candidates = [
         "scripts/lsp-server.py",
         "../scripts/lsp-server.py",
@@ -232,7 +247,12 @@ fn find_script() -> Result<String, String> {
             return Ok(c.to_string());
         }
     }
-    Err("could not find scripts/lsp-server.py — run from the repo root".to_string())
+    let dir = std::env::temp_dir().join("proof-pilot");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let path = dir.join("lsp-server.py");
+    std::fs::write(&path, LSP_SERVER_SOURCE)
+        .map_err(|e| format!("write embedded lsp-server.py: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 fn parse_feedback(json_str: &str) -> Result<LspFeedback, String> {

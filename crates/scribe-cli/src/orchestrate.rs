@@ -7,7 +7,7 @@ use std::process;
 use halva_bridge::{parse_halva_output, scaffold_raw, scaffold_soundness, SpecConfig};
 use proof_pilot::backend::make_backend;
 use proof_pilot::journal::SessionJournal;
-use proof_pilot::notes::render_notes;
+use proof_pilot::notes::{render_notes_styled, NotesStyle};
 use proof_pilot::session::{self, SessionConfig, SessionResult};
 use proof_pilot::transcript;
 
@@ -232,9 +232,51 @@ pub fn run_verify(args: VerifyArgs) {
     handle_session_result(result, &out_path);
 }
 
+/// scribe's notes style: point each guidance pattern at the proven gadgets in
+/// `lean/ZkGadgets/` (the worked-example corpus proof-pilot's generic guidance
+/// deliberately does not know about).
+fn scribe_notes_style() -> NotesStyle {
+    let mut style = NotesStyle::default();
+    let cites = [
+        (
+            "linarith_zmod",
+            "See `lean/ZkGadgets/RangeCheck.lean` for a worked example that uses \
+             `linear_combination` to close ZMod goals.",
+        ),
+        (
+            "zero_divisor",
+            "See `lean/ZkGadgets/HalvaRangeCheck.lean` for the full pattern.",
+        ),
+        (
+            "zmod_unsolved",
+            "See `lean/ZkGadgets/RangeCheck.lean` (the `hcast` block) for an example \
+             of coercing natural-number bits into `ZMod p`.",
+        ),
+        (
+            "fin_sums",
+            "See `lean/ZkGadgets/RangeCheck.lean` (the `hlt` block) for a complete \
+             worked example.",
+        ),
+        (
+            "unsolved_generic",
+            "See `lean/ZkGadgets/RangeCheck.lean` for worked patterns.",
+        ),
+    ];
+    for (key, text) in cites {
+        style.citations.insert(key.to_string(), text.to_string());
+    }
+    style.reference_library = Some(
+        "The proven gadgets in `lean/ZkGadgets/` are your reference library — \
+         `RangeCheck.lean`, `ConditionalSelect.lean`, `PoseidonSbox.lean`, \
+         `NonzeroCheck.lean`, `EdwardsAddition.lean`."
+            .to_string(),
+    );
+    style
+}
+
 /// Render and write a NOTES.md debugging report from the session journal.
 fn write_notes(journal: &SessionJournal, path: &str) {
-    let md = render_notes(journal);
+    let md = render_notes_styled(journal, &scribe_notes_style());
     match fs::write(path, md) {
         Ok(()) => eprintln!("[scribe] notes written to: {path}"),
         Err(e) => eprintln!("[scribe] warning: could not write notes: {e}"),
