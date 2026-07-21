@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::backend::Backend;
-use crate::journal::{IterationRecord, SessionJournal};
+use crate::journal::{CandidateRecord, IterationRecord, SessionJournal};
 use crate::lean_runner::{has_forbidden_tactics, run_lake_build_for_file};
 use crate::lsp_feedback::{
     error_suggestions, feedback_as_build_output, format_lsp_feedback, format_probe_results,
@@ -26,6 +26,12 @@ pub struct SessionConfig {
     pub transcript: Option<String>,
     /// Use Lean LSP for structured feedback instead of lake build text parsing.
     pub use_lsp: bool,
+    /// Best-of-n: sampled proof attempts per iteration (default 1). The kernel
+    /// filters — candidates are deduplicated, tried shortest-first, and the
+    /// first to build wins. Soundness-free parallelism: a wrong candidate costs
+    /// a build, never a false acceptance. Lake-build mode only; LSP mode warns
+    /// and samples once.
+    pub samples_per_iter: u32,
 }
 
 /// Outcome of a proof session.
@@ -92,6 +98,13 @@ fn run_with_lsp(
 ) -> SessionResult {
     let lean_path = Path::new(&config.lean_file);
     let lake_dir = Path::new(&config.lake_dir);
+
+    if config.samples_per_iter > 1 {
+        eprintln!(
+            "[proof-pilot] warning: --samples-per-iter applies to lake-build mode; \
+             LSP mode samples once per iteration"
+        );
+    }
 
     let mut log = open_log(config);
     log_line(
@@ -215,6 +228,8 @@ fn run_with_lsp(
                     goal_states: last_feedback.goal_states(),
                     suggestions: last_feedback.suggestions(),
                     patch_applied: false,
+                    candidates: Vec::new(),
+                    accepted_sample: None,
                 });
 
                 continue;
@@ -311,6 +326,8 @@ fn run_with_lsp(
             goal_states: last_feedback.goal_states(),
             suggestions: last_feedback.suggestions(),
             patch_applied,
+            candidates: Vec::new(),
+            accepted_sample: None,
         });
 
         if let Some(result) = iteration_result {
@@ -481,6 +498,136 @@ fn enrich_feedback(
     }
 }
 
+// ─── Best-of-n sampling ─────────────────────────────────────────────────────
+
+/// Everything the build phase needs for one best-of-n iteration, planned
+/// deterministically before any file is written.
+struct SamplePlan {
+    /// One record per sample, in sampling order. `patch_rejected` / `duplicate`
+    /// are final; the rest start as `"not_tried"` and are updated by the build
+    /// phase.
+    records: Vec<CandidateRecord>,
+    /// `(sample_index, patched_source)` in build order: shortest patched source
+    /// first (ties broken by sampling order, so the plan is deterministic given
+    /// the responses).
+    try_order: Vec<(u32, String)>,
+}
+
+/// Request `k` completions. For `k > 1` the calls run concurrently on scoped
+/// threads (the kernel filters, so parallel sampling is soundness-free); the
+/// returned vector is in sampling order regardless of completion order.
+fn sample_responses(
+    backend: &dyn Backend,
+    prompt: &str,
+    system_prompt: Option<&str>,
+    k: u32,
+) -> Vec<Result<String, crate::backend::BackendError>> {
+    if k <= 1 {
+        return vec![backend.complete(prompt, system_prompt)];
+    }
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..k)
+            .map(|_| scope.spawn(|| backend.complete(prompt, system_prompt)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|_| {
+                    Err(crate::backend::BackendError::RequestFailed(
+                        "sampling thread panicked".to_string(),
+                    ))
+                })
+            })
+            .collect()
+    })
+}
+
+/// Plan the build phase from the raw sampling results: request failures are
+/// recorded in place (so `sample_index` always refers to the original K
+/// requested samples and the journal genuinely records every candidate), then
+/// each successful response is patched (pure — no file is touched), rejects
+/// recorded, identical patched sources hash-deduped (samples at low temperature
+/// frequently collapse to the same proof, and builds dominate cost), and the
+/// survivors ordered shortest-first.
+fn plan_candidates(
+    source_before: &str,
+    samples: &[Result<String, crate::backend::BackendError>],
+    build_output: &str,
+    target_file: &str,
+) -> SamplePlan {
+    let mut records: Vec<CandidateRecord> = Vec::with_capacity(samples.len());
+    let mut planned: Vec<(u32, String)> = Vec::new();
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+
+    for (i, sample) in samples.iter().enumerate() {
+        let sample_index = i as u32;
+        let response = match sample {
+            Ok(r) => r,
+            Err(e) => {
+                records.push(CandidateRecord {
+                    sample_index,
+                    llm_response: String::new(),
+                    status: "request_failed".to_string(),
+                    build_output: format!("backend: {e}"),
+                });
+                continue;
+            }
+        };
+        match apply_patch_with_diagnostics(source_before, response, build_output, Some(target_file))
+        {
+            Ok(patched) => {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                patched.hash(&mut hasher);
+                if seen.insert(hasher.finish()) {
+                    planned.push((sample_index, patched));
+                    records.push(CandidateRecord {
+                        sample_index,
+                        llm_response: response.clone(),
+                        status: "not_tried".to_string(),
+                        build_output: String::new(),
+                    });
+                } else {
+                    records.push(CandidateRecord {
+                        sample_index,
+                        llm_response: response.clone(),
+                        status: "duplicate".to_string(),
+                        build_output: String::new(),
+                    });
+                }
+            }
+            Err(e) => {
+                records.push(CandidateRecord {
+                    sample_index,
+                    llm_response: response.clone(),
+                    status: "patch_rejected".to_string(),
+                    build_output: format!("patch error: {e}"),
+                });
+            }
+        }
+    }
+
+    // Shortest candidate first; sampling order breaks ties deterministically.
+    planned.sort_by(|a, b| a.1.len().cmp(&b.1.len()).then(a.0.cmp(&b.0)));
+
+    SamplePlan {
+        records,
+        try_order: planned,
+    }
+}
+
+fn set_candidate_status(
+    records: &mut [CandidateRecord],
+    sample_index: u32,
+    status: &str,
+    build_output: String,
+) {
+    if let Some(r) = records.iter_mut().find(|r| r.sample_index == sample_index) {
+        r.status = status.to_string();
+        r.build_output = build_output;
+    }
+}
+
 // ─── Original lake-build feedback loop (unchanged logic) ────────────────────
 
 fn run_with_lake_build(
@@ -539,97 +686,187 @@ fn run_with_lake_build(
 
         log_line(&mut log, &format!("[prompt]\n{}\n", prompt));
 
-        let llm_response = match backend.complete(&prompt, config.system_prompt.as_deref()) {
-            Ok(r) => r,
-            Err(e) => return SessionResult::Failed(format!("backend: {e}")),
-        };
-
-        log_line(&mut log, &format!("[llm response]\n{}\n", llm_response));
-
-        // Apply patch
-        let (patched, patch_applied, build_errors_after) = match apply_patch_with_diagnostics(
-            &source_before,
-            &llm_response,
-            &last_stderr,
-            Some(&config.lean_file),
-        ) {
-            Ok(p) => (p, true, last_stderr.clone()),
-            Err(e) => {
-                eprintln!("[proof-pilot] patch rejected: {}", e);
-                log_line(&mut log, &format!("[patch] REJECTED: {}\n", e));
-                let combined_error = format!("(patch error: {})\n{}", e, last_stderr);
-
-                journal.push(IterationRecord {
-                    index: iteration,
-                    source_before: source_before.clone(),
-                    source_after: source_before.clone(),
-                    prompt: prompt.clone(),
-                    llm_response: llm_response.clone(),
-                    build_errors: last_stderr.clone(),
-                    goal_states: Vec::new(),
-                    suggestions: Vec::new(),
-                    patch_applied: false,
-                });
-
-                last_stderr = combined_error;
-                continue;
+        // Sample k candidates (concurrently when k > 1); the kernel filters.
+        let k = config.samples_per_iter.max(1);
+        let sampled = sample_responses(backend, &prompt, config.system_prompt.as_deref(), k);
+        let ok_count = sampled.iter().filter(|r| r.is_ok()).count();
+        if ok_count == 0 {
+            let e = sampled
+                .into_iter()
+                .find_map(|r| r.err())
+                .expect("no responses implies at least one error");
+            return SessionResult::Failed(format!("backend: {e}"));
+        }
+        if ok_count < k as usize {
+            eprintln!(
+                "[proof-pilot] warning: {}/{} sample(s) failed; continuing with the rest",
+                k as usize - ok_count,
+                k
+            );
+        }
+        let first_ok_response = sampled
+            .iter()
+            .find_map(|r| r.as_ref().ok())
+            .cloned()
+            .expect("ok_count > 0");
+        for (i, r) in sampled.iter().enumerate() {
+            match r {
+                Ok(text) => log_line(&mut log, &format!("[llm response, sample {i}]\n{text}\n")),
+                Err(e) => log_line(
+                    &mut log,
+                    &format!("[llm response, sample {i}] FAILED: {e}\n"),
+                ),
             }
-        };
-
-        log_line(&mut log, &format!("[patched file]\n{}\n", patched));
-
-        // Write patched file
-        if let Err(e) = fs::write(lean_path, &patched) {
-            return SessionResult::Failed(format!("write {}: {}", config.lean_file, e));
         }
 
-        // Rebuild
-        let (build_result, new_stderr) = match run_lake_build_for_file(lake_dir, lean_path) {
-            Ok(r) if r.success && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) => {
-                eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
-                log_line(
-                    &mut log,
-                    &format!("[build] SUCCESS at iteration {}\n", iteration),
-                );
+        // Plan: patch each candidate (pure), dedupe, shortest-first. The plan's
+        // records cover ALL k requested samples — including request failures —
+        // with sample_index referring to the original sampling order.
+        let mut plan = plan_candidates(&source_before, &sampled, &last_stderr, &config.lean_file);
 
-                journal.push(IterationRecord {
-                    index: iteration,
-                    source_before,
-                    source_after: patched,
-                    prompt,
-                    llm_response,
-                    build_errors: build_errors_after,
-                    goal_states: Vec::new(),
-                    suggestions: Vec::new(),
-                    patch_applied,
-                });
+        // Journal candidate records only under genuine best-of-n; with k = 1 the
+        // single response is already `llm_response` (schema-stable with old runs).
+        let record_candidates = k > 1;
 
-                return SessionResult::Proven {
-                    iterations: iteration,
-                };
+        if plan.try_order.is_empty() {
+            // Every successful sample was rejected by the patcher.
+            let first_reason = plan
+                .records
+                .iter()
+                .find(|r| r.status == "patch_rejected")
+                .map(|r| r.build_output.clone())
+                .unwrap_or_else(|| "patch error: no candidates".to_string());
+            eprintln!("[proof-pilot] patch rejected: {first_reason}");
+            log_line(&mut log, &format!("[patch] REJECTED: {first_reason}\n"));
+            let combined_error = format!("({})\n{}", first_reason, last_stderr);
+
+            journal.push(IterationRecord {
+                index: iteration,
+                source_before: source_before.clone(),
+                source_after: source_before.clone(),
+                prompt: prompt.clone(),
+                llm_response: first_ok_response.clone(),
+                build_errors: last_stderr.clone(),
+                goal_states: Vec::new(),
+                suggestions: Vec::new(),
+                patch_applied: false,
+                candidates: if record_candidates {
+                    plan.records
+                } else {
+                    Vec::new()
+                },
+                accepted_sample: None,
+            });
+
+            last_stderr = combined_error;
+            continue;
+        }
+
+        // Build phase: sequential with early exit — success costs one build.
+        let mut accepted: Option<(u32, String)> = None;
+        let mut last_failed: Option<(u32, String, String)> = None;
+        let try_order = std::mem::take(&mut plan.try_order);
+        for (sample_index, patched) in &try_order {
+            log_line(
+                &mut log,
+                &format!("[patched file, sample {sample_index}]\n{patched}\n"),
+            );
+            if let Err(e) = fs::write(lean_path, patched) {
+                return SessionResult::Failed(format!("write {}: {}", config.lean_file, e));
             }
-            Ok(r) => {
-                eprintln!("[proof-pilot] build failed, retrying...");
-                log_line(&mut log, &format!("[build] FAIL\n{}\n", r.combined));
-                let stderr = r.combined.clone();
-                (r.combined, stderr)
+            match run_lake_build_for_file(lake_dir, lean_path) {
+                Ok(r)
+                    if r.success
+                        && !has_forbidden_tactics(&r.combined, Some(&config.lean_file)) =>
+                {
+                    set_candidate_status(&mut plan.records, *sample_index, "accepted", r.combined);
+                    accepted = Some((*sample_index, patched.clone()));
+                    break;
+                }
+                Ok(r) => {
+                    log_line(
+                        &mut log,
+                        &format!("[build] FAIL (sample {sample_index})\n{}\n", r.combined),
+                    );
+                    set_candidate_status(
+                        &mut plan.records,
+                        *sample_index,
+                        "build_failed",
+                        r.combined.clone(),
+                    );
+                    last_failed = Some((*sample_index, patched.clone(), r.combined));
+                }
+                Err(e) => return SessionResult::Failed(format!("lake build: {}", e)),
             }
-            Err(e) => return SessionResult::Failed(format!("lake build: {}", e)),
+        }
+
+        let response_for = |sample_index: u32| -> String {
+            plan.records
+                .iter()
+                .find(|r| r.sample_index == sample_index)
+                .map(|r| r.llm_response.clone())
+                .unwrap_or_default()
         };
+
+        if let Some((sample_index, patched)) = accepted {
+            eprintln!("[proof-pilot] proof accepted at iteration {}", iteration);
+            log_line(
+                &mut log,
+                &format!("[build] SUCCESS at iteration {iteration} (sample {sample_index})\n"),
+            );
+
+            journal.push(IterationRecord {
+                index: iteration,
+                source_before,
+                source_after: patched,
+                prompt,
+                llm_response: response_for(sample_index),
+                build_errors: last_stderr.clone(),
+                goal_states: Vec::new(),
+                suggestions: Vec::new(),
+                patch_applied: true,
+                candidates: if record_candidates {
+                    plan.records
+                } else {
+                    Vec::new()
+                },
+                accepted_sample: if record_candidates {
+                    Some(sample_index)
+                } else {
+                    None
+                },
+            });
+
+            return SessionResult::Proven {
+                iterations: iteration,
+            };
+        }
+
+        // All candidates failed to build. The file on disk holds the LAST tried
+        // candidate, so record and feed back exactly that state.
+        let (sample_index, patched, build_output) =
+            last_failed.expect("non-empty try_order with no acceptance has a last failure");
+        eprintln!("[proof-pilot] build failed, retrying...");
 
         journal.push(IterationRecord {
             index: iteration,
             source_before,
             source_after: patched,
             prompt,
-            llm_response,
-            build_errors: build_result,
+            llm_response: response_for(sample_index),
+            build_errors: build_output.clone(),
             goal_states: Vec::new(),
             suggestions: Vec::new(),
-            patch_applied,
+            patch_applied: true,
+            candidates: if record_candidates {
+                plan.records
+            } else {
+                Vec::new()
+            },
+            accepted_sample: None,
         });
 
-        last_stderr = new_stderr;
+        last_stderr = build_output;
     }
 
     log_line(
@@ -748,6 +985,116 @@ fn relative_lean_path(lean_file: &Path, lake_dir: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use crate::lsp_feedback::{Diagnostic, GoalState};
+
+    const SORRY_SOURCE: &str = "theorem foo : True := by\n  sorry\n";
+
+    fn fenced(body: &str) -> String {
+        format!("```lean\n{body}\n```")
+    }
+
+    #[test]
+    fn plan_dedupes_orders_shortest_first_and_records_rejects() {
+        let responses = vec![
+            Ok(fenced("exact True.intro")),  // sample 0: longer proof
+            Ok(fenced("trivial")),           // sample 1: shorter proof
+            Ok(fenced("trivial")),           // sample 2: duplicate of 1
+            Ok("no code block".to_string()), // sample 3: patcher must reject
+        ];
+        let plan = plan_candidates(SORRY_SOURCE, &responses, "", "Foo.lean");
+
+        // Build order: shortest patched source first, then the longer one.
+        assert_eq!(plan.try_order.len(), 2);
+        assert_eq!(plan.try_order[0].0, 1);
+        assert_eq!(plan.try_order[1].0, 0);
+        assert!(plan.try_order[0].1.len() < plan.try_order[1].1.len());
+        assert!(plan.try_order[0].1.contains("trivial"));
+
+        // Records cover every sample, in sampling order, with final statuses for
+        // duplicates and rejects.
+        let statuses: Vec<&str> = plan.records.iter().map(|r| r.status.as_str()).collect();
+        assert_eq!(
+            statuses,
+            vec!["not_tried", "not_tried", "duplicate", "patch_rejected"]
+        );
+        assert!(plan.records[3].build_output.starts_with("patch error:"));
+    }
+
+    #[test]
+    fn plan_length_ties_break_by_sampling_order() {
+        // Same length, different content — deterministic order must follow
+        // sampling order, not hash order.
+        let responses = vec![Ok(fenced("simp_a")), Ok(fenced("simp_b"))];
+        let plan = plan_candidates(SORRY_SOURCE, &responses, "", "Foo.lean");
+        assert_eq!(plan.try_order.len(), 2);
+        assert_eq!(plan.try_order[0].0, 0);
+        assert_eq!(plan.try_order[1].0, 1);
+    }
+
+    #[test]
+    fn plan_records_request_failures_at_original_indexes() {
+        // A failed concurrent sample must appear in the records at its original
+        // sample_index — "the journal records every candidate" includes partial
+        // sampling failures, and accepted_sample must keep referring to the
+        // originally requested K samples.
+        let responses = vec![
+            Err(crate::backend::BackendError::RequestFailed(
+                "boom".to_string(),
+            )),
+            Ok(fenced("trivial")),
+            Ok(fenced("exact True.intro")),
+        ];
+        let plan = plan_candidates(SORRY_SOURCE, &responses, "", "Foo.lean");
+
+        assert_eq!(plan.records.len(), 3);
+        assert_eq!(plan.records[0].status, "request_failed");
+        assert_eq!(plan.records[0].sample_index, 0);
+        assert!(plan.records[0].llm_response.is_empty());
+        assert!(plan.records[0].build_output.contains("boom"));
+        // Surviving candidates keep their ORIGINAL indexes (1 and 2), shortest
+        // first.
+        assert_eq!(plan.try_order.len(), 2);
+        assert_eq!(plan.try_order[0].0, 1);
+        assert_eq!(plan.try_order[1].0, 2);
+    }
+
+    #[test]
+    fn plan_all_rejected_yields_empty_try_order() {
+        let responses = vec![Ok("nope".to_string()), Ok("also nope".to_string())];
+        let plan = plan_candidates(SORRY_SOURCE, &responses, "", "Foo.lean");
+        assert!(plan.try_order.is_empty());
+        assert!(plan.records.iter().all(|r| r.status == "patch_rejected"));
+    }
+
+    #[test]
+    fn set_candidate_status_targets_by_sample_index() {
+        let responses = vec![Ok(fenced("trivial")), Ok(fenced("exact True.intro"))];
+        let mut plan = plan_candidates(SORRY_SOURCE, &responses, "", "Foo.lean");
+        set_candidate_status(&mut plan.records, 1, "accepted", "ok".to_string());
+        assert_eq!(plan.records[1].status, "accepted");
+        assert_eq!(plan.records[1].build_output, "ok");
+        assert_eq!(plan.records[0].status, "not_tried");
+    }
+
+    #[test]
+    fn pre_best_of_n_journal_json_still_loads() {
+        // An IterationRecord serialized before the candidates/accepted_sample
+        // fields existed must deserialize with defaults — the replay
+        // determinism contract includes old transcripts.
+        let old = r#"{
+            "index": 1,
+            "source_before": "a",
+            "source_after": "b",
+            "prompt": "p",
+            "llm_response": "r",
+            "build_errors": "",
+            "goal_states": [],
+            "suggestions": [],
+            "patch_applied": true
+        }"#;
+        let rec: IterationRecord = serde_json::from_str(old).expect("old journal must load");
+        assert!(rec.candidates.is_empty());
+        assert_eq!(rec.accepted_sample, None);
+    }
 
     #[test]
     fn lsp_prompt_preserves_lake_fallback_output() {

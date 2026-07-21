@@ -37,6 +37,7 @@ fn main() {
     let mut system_prompt_file = Some(DEFAULT_SYSTEM_PROMPT.to_string());
     let mut transcript = None;
     let mut use_lsp = false;
+    let mut samples_per_iter = 1u32;
     let mut backend_name = String::from("claude");
     let mut api_key: Option<String> = None;
     let mut base_url: Option<String> = None;
@@ -76,6 +77,16 @@ fn main() {
             }
             "--transcript" => transcript = Some(flag_value(&args, &mut i, "--transcript")),
             "--lsp" => use_lsp = true,
+            "--samples-per-iter" => {
+                samples_per_iter = flag_value(&args, &mut i, "--samples-per-iter")
+                    .parse()
+                    .ok()
+                    .filter(|&n| n >= 1)
+                    .unwrap_or_else(|| {
+                        eprintln!("invalid --samples-per-iter value (must be >= 1)");
+                        process::exit(1);
+                    });
+            }
             "--no-audit-gate" => audit_gate = false,
             "--backend" => backend_name = flag_value(&args, &mut i, "--backend"),
             "--api-key" => api_key = Some(flag_value(&args, &mut i, "--api-key")),
@@ -174,7 +185,10 @@ fn main() {
         })
     });
 
-    let backend = make_backend(&backend_name, model, api_key, base_url);
+    let backend = make_backend(&backend_name, model, api_key, base_url).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
 
     let config = SessionConfig {
         lean_file: out_path.clone(),
@@ -183,6 +197,7 @@ fn main() {
         system_prompt,
         transcript,
         use_lsp,
+        samples_per_iter,
     };
 
     let (result, _journal) = session::run(&config, backend.as_ref());

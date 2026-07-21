@@ -5,6 +5,28 @@
 //! (P4 NOTES.md, P5 transcript replay) consume this type; it must remain
 //! serde-stable.
 
+/// One sampled candidate within a best-of-n iteration.
+///
+/// Recorded for every sample when `samples_per_iter > 1` so the transcript is a
+/// complete, deterministic record: `--replay` applies `source_after` states and
+/// never re-derives from responses, but an auditor must be able to see every
+/// candidate the kernel filtered and which one was accepted.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CandidateRecord {
+    /// 0-based index in sampling order (the order responses were requested).
+    pub sample_index: u32,
+    /// Raw LLM response for this sample.
+    pub llm_response: String,
+    /// What happened to this candidate: `"accepted"`, `"build_failed"`,
+    /// `"patch_rejected"`, `"duplicate"` (identical patched source as an earlier
+    /// sample), `"not_tried"` (an earlier candidate was accepted first), or
+    /// `"request_failed"` (the backend call itself failed — `llm_response` is
+    /// empty and the error is in `build_output`).
+    pub status: String,
+    /// Build output for candidates that were built; empty otherwise.
+    pub build_output: String,
+}
+
 /// A single LLM iteration within a proof session.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IterationRecord {
@@ -16,7 +38,9 @@ pub struct IterationRecord {
     pub source_after: String,
     /// Full prompt sent to the LLM.
     pub prompt: String,
-    /// Raw text response from the LLM.
+    /// Raw text response from the LLM. Under best-of-n this is the response
+    /// whose patch ended the iteration (the accepted candidate, or the last
+    /// candidate tried when all failed) — consistent with `source_after`.
     pub llm_response: String,
     /// Build / LSP error text shown to the LLM for this iteration.
     pub build_errors: String,
@@ -26,6 +50,15 @@ pub struct IterationRecord {
     pub suggestions: Vec<String>,
     /// `true` if the patch was successfully applied; `false` if it was rejected.
     pub patch_applied: bool,
+    /// All sampled candidates, in sampling order. Empty when `samples_per_iter`
+    /// is 1 (the single response is already `llm_response`). `#[serde(default)]`
+    /// keeps pre-best-of-n transcripts loadable unchanged.
+    #[serde(default)]
+    pub candidates: Vec<CandidateRecord>,
+    /// `sample_index` of the accepted candidate, when one was accepted under
+    /// best-of-n sampling.
+    #[serde(default)]
+    pub accepted_sample: Option<u32>,
 }
 
 /// Complete record of one proof completion session.

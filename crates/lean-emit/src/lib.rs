@@ -217,10 +217,16 @@ fn substitute_p(s: &str, prime: u64) -> String {
 /// is evidence, not proof, that the spec survives attack. The `#audit_axioms`
 /// gate holds refutations to the same axiom standard as proofs.
 pub fn emit_refutation(gadget: &Gadget, prime: u64) -> Result<String, EmitError> {
-    let spec = gadget.soundness_spec.as_ref().ok_or(EmitError::MissingSpec)?;
+    let spec = gadget
+        .soundness_spec
+        .as_ref()
+        .ok_or(EmitError::MissingSpec)?;
     let witness_names: Vec<&str> = gadget.witnesses.iter().map(|w| w.name.as_str()).collect();
     let witness_by_id = witness_map(gadget)?;
-    let theorem_name = format!("{}_refuted", sanitize_generated_ident(&gadget.name, "gadget"));
+    let theorem_name = format!(
+        "{}_refuted",
+        sanitize_generated_ident(&gadget.name, "gadget")
+    );
     let constraint_labels = generated_constraint_labels(gadget)?;
     let _ = constraint_labels; // labels documented in the header; antecedents are positional
 
@@ -263,14 +269,20 @@ pub fn emit_refutation(gadget: &Gadget, prime: u64) -> Result<String, EmitError>
         witness_names.join(" ")
     ));
     for h in &gadget.hypotheses {
-        out.push_str(&format!("        {} →\n", substitute_p(&h.lean_type, prime)));
+        out.push_str(&format!(
+            "        {} →\n",
+            substitute_p(&h.lean_type, prime)
+        ));
     }
     for c in &gadget.constraints {
         // constraint expressions can carry `(1 : ZMod p)`-style casts
         let expr = substitute_p(&emit_constraint_expr(c, &witness_by_id)?, prime);
         out.push_str(&format!("        {} = 0 →\n", expr));
     }
-    out.push_str(&format!("        ({})) := by\n  sorry\n", substitute_p(spec, prime)));
+    out.push_str(&format!(
+        "        ({})) := by\n  sorry\n",
+        substitute_p(spec, prime)
+    ));
 
     // -- audit gate: a refutation must rest on the trusted kernel axioms too
     out.push_str(&audit_gate(&theorem_name));
