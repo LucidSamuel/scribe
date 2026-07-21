@@ -5,6 +5,7 @@ use proof_pilot::session::{self, SessionConfig, SessionResult};
 use proof_pilot::transcript;
 
 const DEFAULT_SYSTEM_PROMPT: &str = "prompts/lean-prover.md";
+const EMBEDDED_SYSTEM_PROMPT: &str = include_str!("../prompts/lean-prover.md");
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -46,6 +47,7 @@ fn main() {
     let mut max_iterations = 10u32;
     let mut model: Option<String> = None;
     let mut system_prompt_file = Some(DEFAULT_SYSTEM_PROMPT.to_string());
+    let mut system_prompt_explicit = false;
     let mut transcript_path: Option<String> = None;
     let mut save_transcript: Option<String> = None;
     // --notes takes an optional explicit path; None means "derive from lean_file".
@@ -79,6 +81,7 @@ fn main() {
             }
             "--system-prompt" => {
                 system_prompt_file = Some(flag_value(&args, &mut i, "--system-prompt"));
+                system_prompt_explicit = true;
             }
             "--transcript" => {
                 transcript_path = Some(flag_value(&args, &mut i, "--transcript"));
@@ -174,13 +177,10 @@ fn main() {
 
     // ── Normal proof-pilot session ───────────────────────────────────────────
 
-    // Read system prompt from file if provided
-    let system_prompt = system_prompt_file.map(|path| {
-        std::fs::read_to_string(&path).unwrap_or_else(|e| {
-            eprintln!("error reading system prompt {}: {}", path, e);
-            std::process::exit(1);
-        })
-    });
+    // Read system prompt from file if provided. The default falls back to an
+    // embedded crate-local prompt so the crates.io binary is self-contained.
+    let system_prompt =
+        system_prompt_file.map(|path| read_system_prompt(&path, system_prompt_explicit));
 
     // Construct backend
     let backend = make_backend(&backend_name, model, api_key, base_url).unwrap_or_else(|e| {
@@ -257,10 +257,43 @@ fn main() {
     }
 }
 
+fn read_system_prompt(path: &str, explicit: bool) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(prompt) => prompt,
+        Err(e) if explicit => {
+            eprintln!("error reading system prompt {path}: {e}");
+            std::process::exit(1);
+        }
+        Err(e) if path == DEFAULT_SYSTEM_PROMPT => {
+            eprintln!(
+                "[proof-pilot] warning: could not read default system prompt {path}: {e}; \
+                 using bundled prompt"
+            );
+            EMBEDDED_SYSTEM_PROMPT.to_string()
+        }
+        Err(e) => {
+            eprintln!("error reading system prompt {path}: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn flag_value(args: &[String], i: &mut usize, flag: &str) -> String {
     *i += 1;
     args.get(*i).cloned().unwrap_or_else(|| {
         eprintln!("missing value for {}", flag);
         std::process::exit(1);
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_default_system_prompt_is_available() {
+        assert!(EMBEDDED_SYSTEM_PROMPT.contains("Lean 4"));
+        assert!(EMBEDDED_SYSTEM_PROMPT.contains("Do not use `sorry`"));
+        assert!(EMBEDDED_SYSTEM_PROMPT.contains("Do not modify the theorem statement"));
+    }
 }

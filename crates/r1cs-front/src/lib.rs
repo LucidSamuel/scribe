@@ -149,6 +149,12 @@ pub fn parse_r1cs_bytes(bytes: &[u8]) -> Result<R1csFile, R1csError> {
             )));
         }
     }
+    if r.pos != r.buf.len() {
+        return Err(R1csError::Malformed(format!(
+            "trailing bytes after section table at offset {}",
+            r.pos
+        )));
+    }
 
     let header = sections
         .get(&1)
@@ -170,6 +176,12 @@ pub fn parse_r1cs_bytes(bytes: &[u8]) -> Result<R1csFile, R1csError> {
     let n_prv_in = h.u32("nPrvIn")?;
     let _n_labels = h.u64("nLabels")?;
     let m_constraints = h.u32("mConstraints")?;
+    if h.pos != h.buf.len() {
+        return Err(R1csError::Malformed(format!(
+            "trailing bytes in header section at offset {}",
+            h.pos
+        )));
+    }
 
     let cs_section = sections
         .get(&2)
@@ -195,6 +207,12 @@ pub fn parse_r1cs_bytes(bytes: &[u8]) -> Result<R1csFile, R1csError> {
         }
         let [a, b, c_lc] = lcs;
         constraints.push(R1csConstraint { a, b, c: c_lc });
+    }
+    if c.pos != c.buf.len() {
+        return Err(R1csError::Malformed(format!(
+            "trailing bytes in constraints section at offset {}",
+            c.pos
+        )));
     }
 
     Ok(R1csFile {
@@ -324,8 +342,10 @@ fn lean_name(sym: &str) -> String {
 /// Convert a parsed R1CS into a `gadget_ir::Gadget`.
 ///
 /// Wire 0 is the constant-1 wire: it contributes to coefficients, never to
-/// monomials. Every other wire that appears in some constraint becomes a
-/// witness variable, named from `sym` when available (`w<i>` otherwise).
+/// monomials. Every other wire that appears in some constraint, or appears in
+/// the `.sym` map, becomes a witness variable. Preserving named unconstrained
+/// wires is essential: specs often mention public outputs precisely to catch
+/// dangling-output bugs.
 /// Each rank-1 row expands to one gadget constraint
 /// `Σᵢⱼ aᵢbⱼ·wᵢwⱼ − Σₖ cₖ·wₖ = 0`, with like monomials merged.
 pub fn to_gadget(
@@ -333,7 +353,7 @@ pub fn to_gadget(
     sym: &BTreeMap<u32, String>,
     opts: &ConvertOptions,
 ) -> Result<Gadget, R1csError> {
-    // Collect the wires that actually occur (excluding wire 0).
+    // Collect constrained wires plus named `.sym` wires (excluding wire 0).
     let mut used: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     for c in &r1cs.constraints {
         for (w, _) in c.a.iter().chain(c.b.iter()).chain(c.c.iter()) {
@@ -342,19 +362,34 @@ pub fn to_gadget(
             }
         }
     }
+    for wire in sym.keys().copied().filter(|w| *w != 0) {
+        if wire >= r1cs.n_wires {
+            return Err(R1csError::Malformed(format!(
+                ".sym references wire {wire}, but nWires = {}",
+                r1cs.n_wires
+            )));
+        }
+        used.insert(wire);
+    }
 
     // Wire id → dense witness id, plus names (deduped after sanitization).
     let mut witnesses = Vec::with_capacity(used.len());
     let mut wire_to_id: BTreeMap<u32, usize> = BTreeMap::new();
     let mut seen_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (id, wire) in used.iter().enumerate() {
-        let mut name = sym
+        let base_name = sym
             .get(wire)
             .map(|s| lean_name(s))
             .unwrap_or_else(|| format!("w{wire}"));
-        if !seen_names.insert(name.clone()) {
-            name = format!("{name}_w{wire}");
-            seen_names.insert(name.clone());
+        let mut name = base_name.clone();
+        let mut suffix = 0usize;
+        while !seen_names.insert(name.clone()) {
+            suffix += 1;
+            name = if suffix == 1 {
+                format!("{base_name}_w{wire}")
+            } else {
+                format!("{base_name}_w{wire}_{suffix}")
+            };
         }
         witnesses.push(WitnessVar { id, name });
         wire_to_id.insert(*wire, id);
@@ -504,6 +539,24 @@ mod tests {
         BigUint::from(n)
     }
 
+    fn append_to_section(mut bytes: Vec<u8>, section_type: u32, extra: &[u8]) -> Vec<u8> {
+        let mut pos = 12usize; // magic + version + section count
+        loop {
+            let stype = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
+            let size_pos = pos + 4;
+            let size = u64::from_le_bytes(bytes[size_pos..size_pos + 8].try_into().unwrap());
+            let content_start = pos + 12;
+            let content_end = content_start + size as usize;
+            if stype == section_type {
+                let new_size = size + extra.len() as u64;
+                bytes[size_pos..size_pos + 8].copy_from_slice(&new_size.to_le_bytes());
+                bytes.splice(content_end..content_end, extra.iter().copied());
+                return bytes;
+            }
+            pos = content_end;
+        }
+    }
+
     /// wires: 0 = const 1, 1 = a, 2 = b, 3 = c;  constraint: a * b = c
     fn multiplier() -> Vec<R1csConstraint> {
         vec![R1csConstraint {
@@ -543,6 +596,23 @@ mod tests {
 
         assert!(matches!(
             parse_r1cs_bytes(&good[..good.len() - 3]),
+            Err(R1csError::Malformed(_))
+        ));
+
+        let mut trailing_file = good.clone();
+        trailing_file.push(0);
+        assert!(matches!(
+            parse_r1cs_bytes(&trailing_file),
+            Err(R1csError::Malformed(_))
+        ));
+
+        assert!(matches!(
+            parse_r1cs_bytes(&append_to_section(good.clone(), 1, &[0])),
+            Err(R1csError::Malformed(_))
+        ));
+
+        assert!(matches!(
+            parse_r1cs_bytes(&append_to_section(good.clone(), 2, &[0])),
             Err(R1csError::Malformed(_))
         ));
 
@@ -715,5 +785,54 @@ mod tests {
         assert_eq!(terms.len(), 1);
         assert_eq!(terms[0].coeff, "2"); // merged 1+1
         assert_eq!(terms[0].vars, vec![0, 0]); // a * a
+    }
+
+    #[test]
+    fn named_unconstrained_sym_wires_are_preserved_as_witnesses() {
+        let bytes = build_r1cs_bytes(&p(), 8, 4, &multiplier());
+        let parsed = parse_r1cs_bytes(&bytes).unwrap();
+        let sym: BTreeMap<u32, String> = [
+            (1, "main.a".to_string()),
+            (2, "main.b".to_string()),
+            (3, "main.c".to_string()),
+            (4, "main.dangling_out".to_string()),
+        ]
+        .into();
+        let mut parsed = parsed;
+        parsed.n_wires = 5;
+
+        let gadget = to_gadget(&parsed, &sym, &ConvertOptions::default()).unwrap();
+        let names: Vec<&str> = gadget.witnesses.iter().map(|w| w.name.as_str()).collect();
+
+        assert_eq!(names, vec!["a", "b", "c", "dangling_out"]);
+    }
+
+    #[test]
+    fn repaired_name_collisions_are_deduped_until_unique() {
+        let bytes = build_r1cs_bytes(&p(), 8, 4, &multiplier());
+        let parsed = parse_r1cs_bytes(&bytes).unwrap();
+        let sym: BTreeMap<u32, String> = [
+            (1, "main.a".to_string()),
+            (2, "main.a_w3".to_string()),
+            (3, "main.a".to_string()),
+        ]
+        .into();
+
+        let gadget = to_gadget(&parsed, &sym, &ConvertOptions::default()).unwrap();
+        let names: Vec<&str> = gadget.witnesses.iter().map(|w| w.name.as_str()).collect();
+
+        assert_eq!(names, vec!["a", "a_w3", "a_w3_2"]);
+    }
+
+    #[test]
+    fn sym_wire_out_of_range_is_malformed() {
+        let bytes = build_r1cs_bytes(&p(), 8, 4, &multiplier());
+        let parsed = parse_r1cs_bytes(&bytes).unwrap();
+        let sym: BTreeMap<u32, String> = [(4, "main.out_of_range".to_string())].into();
+
+        let err = to_gadget(&parsed, &sym, &ConvertOptions::default()).unwrap_err();
+
+        assert!(matches!(err, R1csError::Malformed(_)));
+        assert!(err.to_string().contains(".sym references wire 4"));
     }
 }

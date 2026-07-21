@@ -569,6 +569,17 @@ const EXIT_UNDETERMINED: i32 = 1;
 const EXIT_UNSOUND: i32 = 2;
 const EXIT_INFRA: i32 = 3;
 
+fn require_judge_spec(gadget: &gadget_ir::Gadget) -> Result<(), String> {
+    if gadget.soundness_spec.is_some() {
+        Ok(())
+    } else {
+        Err(format!(
+            "gadget '{}' has no soundness_spec; there is no spec to judge",
+            gadget.name
+        ))
+    }
+}
+
 /// Prove AND attack: the dual-sided verdict.
 ///
 /// Prover first — a kernel-accepted proof settles the question (no
@@ -578,6 +589,10 @@ const EXIT_INFRA: i32 = 3;
 pub fn run_judge(args: JudgeArgs) {
     let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
         eprintln!("error: cannot load gadget {}: {e}", args.gadget);
+        process::exit(EXIT_INFRA);
+    });
+    require_judge_spec(&gadget).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
         process::exit(EXIT_INFRA);
     });
 
@@ -946,5 +961,25 @@ mod tests {
             resolve_system_prompt_from(None, None).as_deref(),
             Some(FALLBACK_SYSTEM_PROMPT)
         );
+    }
+
+    #[test]
+    fn judge_rejects_gadget_without_soundness_spec() {
+        let gadget = gadget_ir::Gadget {
+            name: "constraints-without-intent".to_string(),
+            modulus: "7".to_string(),
+            soundness_spec: None,
+            hypotheses: vec![],
+            witnesses: vec![gadget_ir::WitnessVar {
+                id: 0,
+                name: "x".to_string(),
+            }],
+            constraints: vec![],
+        };
+
+        let err = require_judge_spec(&gadget).expect_err("missing spec must be rejected");
+
+        assert!(err.contains("no soundness_spec"));
+        assert!(err.contains("constraints-without-intent"));
     }
 }
