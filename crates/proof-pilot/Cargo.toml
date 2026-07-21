@@ -3,7 +3,14 @@ name = "proof-pilot"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "LLM-driven Lean proof completion loop via Claude CLI"
+description = "Kernel-arbitrated LLM proof completion for Lean 4, with anti-cheat and deterministic replay"
+repository = "https://github.com/LucidSamuel/scribe"
+homepage = "https://github.com/LucidSamuel/scribe/tree/main/crates/proof-pilot"
+documentation = "https://docs.rs/proof-pilot"
+readme = "README.md"
+keywords = ["lean", "theorem-proving", "llm", "formal-verification", "agent"]
+categories = ["development-tools", "mathematics", "science"]
+exclude = ["*.log"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
