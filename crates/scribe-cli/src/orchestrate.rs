@@ -13,6 +13,7 @@ use proof_pilot::transcript;
 
 use crate::demo_cmd::DemoArgs;
 use crate::extract;
+use crate::import_r1cs_cmd::ImportR1csArgs;
 use crate::judge_cmd::JudgeArgs;
 use crate::refute_cmd::RefuteArgs;
 use crate::verify_cmd::VerifyArgs;
@@ -458,6 +459,104 @@ pub fn run_refute(args: RefuteArgs) {
             process::exit(1);
         }
     }
+}
+
+// ── scribe import-r1cs ───────────────────────────────────────────────────────
+
+/// Convert a circom .r1cs (+ optional .sym) into reviewable gadget TOML.
+pub fn run_import_r1cs(args: ImportR1csArgs) {
+    let r1cs_path = Path::new(&args.r1cs);
+    let r1cs = r1cs_front::parse_r1cs_file(r1cs_path).unwrap_or_else(|e| {
+        eprintln!("error: cannot parse {}: {e}", args.r1cs);
+        process::exit(1);
+    });
+    eprintln!(
+        "[scribe] parsed {}: {} wires, {} constraints, prime ~2^{}",
+        args.r1cs,
+        r1cs.n_wires,
+        r1cs.constraints.len(),
+        r1cs.prime.bits().saturating_sub(1)
+    );
+
+    let sym = match &args.sym {
+        Some(path) => {
+            let content = fs::read_to_string(path).unwrap_or_else(|e| {
+                eprintln!("error: cannot read {path}: {e}");
+                process::exit(1);
+            });
+            r1cs_front::parse_sym(&content)
+        }
+        None => {
+            eprintln!("[scribe] no --sym given; witnesses will be named w<wire>");
+            Default::default()
+        }
+    };
+
+    let name = args.name.clone().unwrap_or_else(|| {
+        r1cs_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "r1cs-import".to_string())
+    });
+    let opts = r1cs_front::ConvertOptions {
+        name,
+        soundness_spec: args.spec.clone(),
+        max_coeff_bits: args.max_coeff_bits,
+    };
+    let mut gadget = r1cs_front::to_gadget(&r1cs, &sym, &opts).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
+
+    for h in &args.hypotheses {
+        let Some((hname, ltype)) = h.split_once(':') else {
+            eprintln!("error: --hypothesis must be NAME:LEAN_TYPE, got '{h}'");
+            process::exit(1);
+        };
+        gadget.hypotheses.push(gadget_ir::Hypothesis {
+            name: hname.trim().to_string(),
+            lean_type: ltype.trim().to_string(),
+        });
+    }
+
+    if gadget.soundness_spec.is_none() {
+        eprintln!(
+            "[scribe] warning: no --spec given. R1CS carries constraints, never intent; \
+             without a human-stated spec the TOML cannot be judged."
+        );
+    }
+
+    let out_path = args.output.clone().unwrap_or_else(|| {
+        let stem = r1cs_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "r1cs-import".to_string());
+        let parent = r1cs_path.parent().unwrap_or(Path::new("."));
+        parent
+            .join(format!("{stem}.gadget.toml"))
+            .to_string_lossy()
+            .into_owned()
+    });
+    let header = format!(
+        "# Imported from {} by `scribe import-r1cs`.\n\
+         # Constraints are machine-derived from the R1CS; the soundness_spec is the\n\
+         # HUMAN trust root — review it as carefully as you would a theorem statement.\n",
+        args.r1cs
+    );
+    let body = toml::to_string_pretty(&gadget).unwrap_or_else(|e| {
+        eprintln!("error: cannot serialize gadget: {e}");
+        process::exit(1);
+    });
+    fs::write(&out_path, format!("{header}{body}")).unwrap_or_else(|e| {
+        eprintln!("error: cannot write {out_path}: {e}");
+        process::exit(1);
+    });
+    eprintln!(
+        "[scribe] wrote {out_path} ({} witnesses, {} constraints)",
+        gadget.witnesses.len(),
+        gadget.constraints.len()
+    );
+    println!("{out_path}");
 }
 
 // ── scribe judge ─────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ members = [
     "crates/proof-pilot",
     "crates/bench",
     "crates/halva-bridge",
+    "crates/r1cs-front",
     "crates/scribe-cli",
 ]
 

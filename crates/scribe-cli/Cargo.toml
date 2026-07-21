@@ -14,4 +14,6 @@ clap = { version = "4", features = ["derive"] }
 gadget-ir = { path = "../gadget-ir" }
 halva-bridge = { path = "../halva-bridge" }
 lean-emit = { path = "../lean-emit" }
+r1cs-front = { path = "../r1cs-front" }
+toml = "0.8"
 proof-pilot = { path = "../proof-pilot" }
