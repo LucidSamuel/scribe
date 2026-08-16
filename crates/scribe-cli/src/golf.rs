@@ -463,13 +463,23 @@ fn board_row(ob: &Obligation, attempt: Option<&AttemptSummary>) -> (String, Stri
         };
         (format!("{YELLOW}·{RESET}"), detail)
     } else {
-        let detail = match attempt {
-            Some(a) if a.outcome == "proven" => {
-                format!("{DIM}proven in {} iter{RESET}", a.iterations)
-            }
-            _ => format!("{DIM}proven{RESET}"),
-        };
-        (format!("{GREEN}✓{RESET}"), detail)
+        // No `sorry` in the declaration. Trust it only if the latest attempt
+        // (if any) actually ended proven — a failed session may have left a
+        // non-building candidate behind (pre-restore versions did).
+        match attempt {
+            Some(a) if a.outcome == "proven" => (
+                format!("{GREEN}✓{RESET}"),
+                format!("{DIM}proven in {} iter{RESET}", a.iterations),
+            ),
+            Some(a) if a.outcome != "proven" => (
+                format!("{RED}?{RESET}"),
+                format!(
+                    "{YELLOW}unverified{RESET} {DIM}(no sorry, but last attempt {}){RESET}",
+                    a.outcome
+                ),
+            ),
+            _ => (format!("{GREEN}✓{RESET}"), format!("{DIM}proven{RESET}")),
+        }
     }
 }
 
@@ -663,11 +673,26 @@ fn cmd_prove(
             attempt_base.display(),
         );
 
+        // Snapshot so a failed session never leaves a broken candidate in the
+        // solution — proof-pilot writes each attempt to disk to build it.
+        let snapshot = fs::read_to_string(file).ok();
+
         let started = Instant::now();
         let (result, journal) = session::run(&config, backend.as_ref());
         let elapsed = started.elapsed().as_secs();
         save_attempt(&attempt_base, &journal, &state.project);
         log_failures(slug, &ob.name, &journal);
+
+        if !matches!(result, SessionResult::Proven { .. }) {
+            if let Some(original) = &snapshot {
+                if fs::write(file, original).is_ok() {
+                    eprintln!(
+                        "[scribe golf] restored {} to its pre-attempt state",
+                        file.display()
+                    );
+                }
+            }
+        }
 
         match result {
             SessionResult::Proven { iterations } => {
