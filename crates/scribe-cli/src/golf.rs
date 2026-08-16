@@ -68,6 +68,27 @@ pub enum GolfCommand {
         /// Best-of-n samples per iteration (lake-build mode only).
         #[arg(long, default_value_t = 1)]
         samples: u32,
+        /// Skip the automatic lesson-distillation pass after the run.
+        #[arg(long)]
+        no_learn: bool,
+    },
+    /// Distill lessons from past attempt journals into docs/golf-lessons.md.
+    ///
+    /// Reads the iteration records (LLM responses + build errors) of recent
+    /// attempts, asks the backend to generalize each MISTAKE PATTERN into a
+    /// rule, merges with the existing lessons file, and rewrites it. The
+    /// lessons file is injected into every future proof attempt, so the
+    /// prover stops repeating the same class of mistake.
+    Learn {
+        slug: String,
+        /// Backend used for distillation.
+        #[arg(long, default_value = "claude")]
+        backend: String,
+        #[arg(long)]
+        model: Option<String>,
+        /// Keep at most this many rules in the lessons file.
+        #[arg(long, default_value_t = 30)]
+        max_lessons: usize,
     },
     /// Submission gate: forbidden tokens, heartbeat cap, toolchain diff,
     /// green build with no sorry warnings, axiom audit, score extraction.
@@ -97,6 +118,7 @@ pub fn run(args: GolfArgs) {
             model,
             lsp,
             samples,
+            no_learn,
         } => cmd_prove(
             &slug,
             obligation.as_deref(),
@@ -105,7 +127,14 @@ pub fn run(args: GolfArgs) {
             model,
             lsp,
             samples,
+            no_learn,
         ),
+        GolfCommand::Learn {
+            slug,
+            backend,
+            model,
+            max_lessons,
+        } => cmd_learn(&slug, &backend, model, max_lessons),
         GolfCommand::Check {
             slug,
             max_heartbeats,
@@ -556,6 +585,7 @@ fn cmd_prove(
     model: Option<String>,
     use_lsp: bool,
     samples: u32,
+    no_learn: bool,
 ) -> i32 {
     let state = match load_state(slug) {
         Ok(s) => s,
@@ -598,6 +628,7 @@ fn cmd_prove(
     };
 
     let mut failed = Vec::new();
+    let mut journals_for_learning: Vec<(String, SessionJournal)> = Vec::new();
     for ob in &targets {
         let Some(file) = &ob.file else {
             eprintln!("[scribe golf] {}: theorem not found in any solution file", ob.name);
@@ -636,6 +667,7 @@ fn cmd_prove(
         let (result, journal) = session::run(&config, backend.as_ref());
         let elapsed = started.elapsed().as_secs();
         save_attempt(&attempt_base, &journal, &state.project);
+        log_failures(slug, &ob.name, &journal);
 
         match result {
             SessionResult::Proven { iterations } => {
@@ -643,6 +675,11 @@ fn cmd_prove(
                     "[scribe golf] {GREEN}✓ {} proven{RESET} ({iterations} iter, {elapsed}s)",
                     ob.name
                 );
+                // >1 iteration means mistakes happened on the way — learn from
+                // them together with the fix that finally worked.
+                if iterations > 1 {
+                    journals_for_learning.push((ob.name.clone(), journal));
+                }
             }
             SessionResult::Exhausted { iterations, last_error } => {
                 let snippet: String = last_error.lines().take(4).collect::<Vec<_>>().join(" | ");
@@ -651,11 +688,20 @@ fn cmd_prove(
                     ob.name
                 );
                 failed.push(ob.name.clone());
+                journals_for_learning.push((ob.name.clone(), journal));
             }
             SessionResult::Failed(e) => {
                 eprintln!("[scribe golf] {RED}✗ {} failed{RESET}: {e}", ob.name);
                 failed.push(ob.name.clone());
             }
+        }
+    }
+
+    if !no_learn && !journals_for_learning.is_empty() {
+        eprintln!("[scribe golf] distilling lessons from {} attempt(s)…", journals_for_learning.len());
+        match distill_lessons(&journals_for_learning, backend.as_ref(), 30) {
+            Ok(n) => eprintln!("[scribe golf] lessons file updated ({n} rules) → {LESSONS_FILE}"),
+            Err(e) => eprintln!("[scribe golf] warning: lesson distillation failed: {e}"),
         }
     }
 
@@ -677,12 +723,20 @@ fn save_attempt(base: &Path, journal: &SessionJournal, project: &str) {
     }
 }
 
-/// System prompt: golf-specific base prompt + challenge interface + the
-/// obligation statement + the matching playbook section.
+/// System prompt: golf-specific base prompt + accumulated lessons + challenge
+/// interface + the obligation statement + the matching playbook section.
 fn build_golf_prompt(state: &GolfState, obligation: &str) -> String {
     let mut prompt = read_or_empty(&golf_prompt_path());
     if prompt.is_empty() {
         prompt = read_or_empty(Path::new("prompts/lean-prover.md"));
+    }
+
+    let lessons = read_or_empty(Path::new(LESSONS_FILE));
+    if !lessons.is_empty() {
+        prompt.push_str("\n\n## Lessons from previous attempts — obey every rule\n");
+        // Cap so a runaway lessons file cannot crowd out the task itself.
+        prompt.push_str(truncate_chars(&lessons, 16_000));
+        prompt.push('\n');
     }
 
     let interface = read_or_empty(&state.instance_dir().join("Interface.lean"));
@@ -773,6 +827,203 @@ fn markdown_section(text: &str, heading_prefix: &str) -> Option<String> {
         None
     } else {
         Some(lines.join("\n"))
+    }
+}
+
+// ── learning loop ────────────────────────────────────────────────────────────
+
+const LESSONS_FILE: &str = "docs/golf-lessons.md";
+
+fn truncate_chars(s: &str, max: usize) -> &str {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => &s[..i],
+        None => s,
+    }
+}
+
+/// Append one JSONL record per failed iteration to golf/<slug>/failures.jsonl.
+/// This is the deterministic failure memory (Phase 2 seeds its "never
+/// re-propose a refuted candidate" check from it).
+fn log_failures(slug: &str, obligation: &str, journal: &SessionJournal) {
+    use std::io::Write;
+    let path = state_dir(slug).join("failures.jsonl");
+    let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) else {
+        return;
+    };
+    for it in &journal.iterations {
+        let failed_build = !it.build_errors.trim().is_empty();
+        if it.patch_applied && !failed_build {
+            continue;
+        }
+        let error_class = classify_error(&it.build_errors);
+        let rec = serde_json::json!({
+            "obligation": obligation,
+            "iteration": it.index,
+            "patch_applied": it.patch_applied,
+            "error_class": error_class,
+            "response_hash": format!("{:016x}", fxhash(&it.llm_response)),
+            "error_head": it.build_errors.lines().find(|l| l.contains("error")).unwrap_or(""),
+        });
+        let _ = writeln!(f, "{rec}");
+    }
+}
+
+/// Cheap stable content hash (FNV-1a) — enough for dedup, no crypto needed.
+fn fxhash(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn classify_error(errors: &str) -> &'static str {
+    let e = errors;
+    if e.contains("unexpected token") || e.contains("unexpected identifier") {
+        "syntax"
+    } else if e.contains("Did not find an occurrence") || e.contains("motive is not type correct") {
+        "rewrite"
+    } else if e.contains("unknown identifier") || e.contains("unknown constant") {
+        "unknown-name"
+    } else if e.contains("unsolved goals") {
+        "unsolved-goals"
+    } else if e.contains("maximum recursion depth") || e.contains("deep recursion") {
+        "recursion-depth"
+    } else if e.contains("heartbeats") {
+        "heartbeats"
+    } else if e.contains("type mismatch") {
+        "type-mismatch"
+    } else if e.contains("forbidden token") {
+        "forbidden-token"
+    } else if e.trim().is_empty() {
+        "patch-rejected"
+    } else {
+        "other"
+    }
+}
+
+/// Ask the backend to merge new failure evidence into the lessons file.
+/// Returns the number of rules in the updated file.
+fn distill_lessons(
+    journals: &[(String, SessionJournal)],
+    backend: &dyn proof_pilot::backend::Backend,
+    max_lessons: usize,
+) -> Result<usize, String> {
+    let existing = read_or_empty(Path::new(LESSONS_FILE));
+    let mut evidence = String::new();
+    for (obligation, journal) in journals {
+        evidence.push_str(&format!(
+            "\n### Attempt: obligation `{obligation}`, outcome `{}`\n",
+            journal.outcome
+        ));
+        for it in &journal.iterations {
+            let failed = !it.patch_applied || !it.build_errors.trim().is_empty();
+            let label = if failed { "FAILED" } else { "ACCEPTED" };
+            evidence.push_str(&format!("\n-- iteration {} [{label}] response excerpt:\n", it.index));
+            evidence.push_str(truncate_chars(&it.llm_response, 1_500));
+            if failed {
+                let errs: Vec<&str> = it
+                    .build_errors
+                    .lines()
+                    .filter(|l| l.contains("error") || l.contains("⊢"))
+                    .take(12)
+                    .collect();
+                evidence.push_str("\n-- diagnostics:\n");
+                evidence.push_str(&errs.join("\n"));
+            }
+            evidence.push('\n');
+        }
+    }
+
+    let prompt = format!(
+        "You maintain the persistent lessons file for an automated Lean 4 prover \
+         working on zkGolf (Clean DSL) obligations. Below is the CURRENT lessons \
+         file, then evidence from recent attempts (failed iterations and, where \
+         available, the fix that finally worked).\n\n\
+         Rewrite the lessons file so the prover never repeats these mistake \
+         PATTERNS. Rules:\n\
+         - One rule per mistake PATTERN, generalized — never per incident.\n\
+         - Merge with and deduplicate against existing rules; refine a rule \
+           rather than adding a near-duplicate.\n\
+         - Keep at most {max_lessons} rules, most valuable first.\n\
+         - Each rule: `- **<short name>**: <imperative rule>. *Trigger:* <error \
+           signature that indicates the rule applies>`.\n\
+         - Keep the existing file header verbatim.\n\
+         Respond with ONLY the complete updated file in a single fenced \
+         markdown code block.\n\n\
+         ## Current lessons file\n\n{existing}\n\n\
+         ## New evidence\n{evidence}"
+    );
+
+    let response = backend
+        .complete(&prompt, None)
+        .map_err(|e| format!("backend: {e:?}"))?;
+    let updated = extract_fenced_block(&response)
+        .ok_or_else(|| "no fenced block in distillation response".to_string())?;
+    if !updated.contains("# Golf prover lessons") {
+        return Err("distilled file lost its header; refusing to overwrite".to_string());
+    }
+    fs::write(LESSONS_FILE, &updated).map_err(|e| e.to_string())?;
+    Ok(updated.lines().filter(|l| l.starts_with("- **")).count())
+}
+
+fn extract_fenced_block(text: &str) -> Option<String> {
+    let start = text.find("```")?;
+    let after_tag = text[start + 3..].find('\n')? + start + 4;
+    let end = text[after_tag..].find("```")? + after_tag;
+    Some(text[after_tag..end].to_string())
+}
+
+fn cmd_learn(slug: &str, backend_name: &str, model: Option<String>, max_lessons: usize) -> i32 {
+    let backend = match make_backend(backend_name, model, None, None) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[scribe golf] backend error: {e}");
+            return 2;
+        }
+    };
+    // Load every attempt journal for the slug, newest last.
+    let dir = state_dir(slug).join("attempts");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        eprintln!("[scribe golf] no attempts recorded for {slug}");
+        return 2;
+    };
+    let mut files: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .collect();
+    files.sort();
+    let mut journals = Vec::new();
+    for path in files {
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some((name, _)) = stem.rsplit_once('-') else {
+            continue;
+        };
+        if let Ok(t) = transcript::load(&path.to_string_lossy()) {
+            let eventful = t.journal.iterations.len() > 1 || t.journal.outcome != "proven";
+            if eventful {
+                journals.push((name.to_string(), t.journal));
+            }
+        }
+    }
+    if journals.is_empty() {
+        eprintln!("[scribe golf] no eventful attempts to learn from");
+        return 0;
+    }
+    eprintln!("[scribe golf] distilling lessons from {} attempt(s)…", journals.len());
+    match distill_lessons(&journals, backend.as_ref(), max_lessons) {
+        Ok(n) => {
+            println!("LEARNED: {n} rules → {LESSONS_FILE}");
+            0
+        }
+        Err(e) => {
+            eprintln!("[scribe golf] distillation failed: {e}");
+            2
+        }
     }
 }
 
@@ -1015,6 +1266,24 @@ mod tests {
         assert!(!s.contains("beta"));
         let five = markdown_section(md, "## 5.").unwrap();
         assert!(five.contains("gamma"));
+    }
+
+    #[test]
+    fn error_classes_are_stable() {
+        assert_eq!(classify_error("foo.lean:3:1: error: unexpected token 'theorem'"), "syntax");
+        assert_eq!(classify_error("error: Tactic `rewrite` failed: Did not find an occurrence"), "rewrite");
+        assert_eq!(classify_error("error: unsolved goals\n⊢ True"), "unsolved-goals");
+        assert_eq!(classify_error(""), "patch-rejected");
+    }
+
+    #[test]
+    fn fenced_block_extraction() {
+        let r = "prose\n```markdown\n# Golf prover lessons\n- **a**: b.\n```\ntrailing";
+        let b = extract_fenced_block(r).unwrap();
+        assert!(b.starts_with("# Golf prover lessons"));
+        assert!(b.contains("- **a**"));
+        assert!(!b.contains("trailing"));
+        assert!(extract_fenced_block("no block here").is_none());
     }
 
     #[test]
