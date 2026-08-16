@@ -15,3 +15,5 @@ gadget-ir = { path = "../gadget-ir" }
 halva-bridge = { path = "../halva-bridge" }
 lean-emit = { path = "../lean-emit" }
 proof-pilot = { path = "../proof-pilot" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

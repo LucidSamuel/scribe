@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::process;
 
 mod extract;
+mod golf;
 mod init;
 mod orchestrate;
 
@@ -75,6 +76,17 @@ enum Commands {
     ///   2 = UNSOUND      (kernel-checked counterexample to the spec)
     ///   3 = infrastructure error
     Judge(judge_cmd::JudgeArgs),
+
+    /// zkGolf competition mode: prove the five obligations of a zk.golf
+    /// challenge inside the zk-golf-challenges lake project.
+    ///
+    /// `init <slug>` records the challenge state, `prove <slug>` runs the LLM
+    /// proof loop over pending obligations one at a time (each attempt writes
+    /// a tail-able transcript under golf/<slug>/attempts/), `status <slug>`
+    /// renders the obligation board, and `check <slug>` is the submission
+    /// gate: forbidden tokens, heartbeat cap, toolchain diff, green build,
+    /// axiom audit against the challenge's permitted list, and score.
+    Golf(golf::GolfArgs),
 }
 
 mod verify_cmd {
@@ -406,6 +418,9 @@ fn main() {
         }
         Commands::Judge(args) => {
             orchestrate::run_judge(args);
+        }
+        Commands::Golf(args) => {
+            golf::run(args);
         }
     }
 }

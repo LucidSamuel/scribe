@@ -26,6 +26,10 @@ benchmark/results/
 prompts/*
 !prompts/lean-prover.md
 !prompts/lean-refuter.md
+!prompts/golf-prover.md
+
+# zkGolf per-challenge state + attempt journals (scribe golf)
+golf/
 NOTES.md
 
 # zkGolf corpus: vendored external repos + harvested submissions (regenerate
