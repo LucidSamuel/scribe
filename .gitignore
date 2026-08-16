@@ -28,6 +28,10 @@ prompts/*
 !prompts/lean-refuter.md
 NOTES.md
 
+# zkGolf corpus: vendored external repos + harvested submissions (regenerate
+# with `git clone` per docs/clean-playbook.md and `scripts/harvest.sh`)
+corpus/
+
 # MCP config (local dev)
 .mcp.json
 
