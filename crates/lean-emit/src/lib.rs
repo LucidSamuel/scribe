@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use gadget_ir::{Constraint, Gadget, Term};
+use circuit_ir::{CircuitIR, Constraint, Term};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmitError {
@@ -8,6 +8,7 @@ pub enum EmitError {
     DuplicateWitnessId(usize),
     UnknownWitnessId { constraint: String, id: usize },
     DuplicateConstraintLabel(String),
+    NonLinearDefinition { definition: String },
     MissingSpec,
 }
 
@@ -17,19 +18,26 @@ impl std::fmt::Display for EmitError {
             EmitError::InvalidIdentifier { kind, name } => {
                 write!(f, "invalid Lean identifier for {}: {}", kind, name)
             }
-            EmitError::DuplicateWitnessId(id) => write!(f, "duplicate witness id: {}", id),
+            EmitError::DuplicateWitnessId(id) => write!(f, "duplicate variable id: {}", id),
             EmitError::UnknownWitnessId { constraint, id } => {
                 write!(
                     f,
-                    "constraint {} references unknown witness id {}",
+                    "constraint {} references unknown variable id {}",
                     constraint, id
                 )
             }
             EmitError::DuplicateConstraintLabel(label) => {
                 write!(f, "duplicate generated constraint label: {}", label)
             }
+            EmitError::NonLinearDefinition { definition } => {
+                write!(
+                    f,
+                    "definition {} is not linear (a term multiplies variables)",
+                    definition
+                )
+            }
             EmitError::MissingSpec => {
-                write!(f, "gadget has no soundness_spec — nothing to refute")
+                write!(f, "circuit has no soundness_spec — nothing to refute")
             }
         }
     }
@@ -37,23 +45,70 @@ impl std::fmt::Display for EmitError {
 
 impl std::error::Error for EmitError {}
 
+/// Emit the variable binder lines: public and private variables as distinct
+/// binder groups (the verifier sees the former; the prover knows the latter).
+fn variable_binders(circuit: &CircuitIR) -> String {
+    let mut out = String::new();
+    let public: Vec<&str> = circuit.public.iter().map(|v| v.name.as_str()).collect();
+    let private: Vec<&str> = circuit.private.iter().map(|v| v.name.as_str()).collect();
+    if !public.is_empty() {
+        out.push_str(&format!("    ({} : ZMod p)\n", public.join(" ")));
+    }
+    if !private.is_empty() {
+        out.push_str(&format!("    ({} : ZMod p)\n", private.join(" ")));
+    }
+    out
+}
+
+/// Render each definition as a `(name, linear expression)` pair, in order,
+/// extending `by_id` as it goes so later definitions and the constraints can
+/// reference earlier ones. Definitions share the variable id namespace; a
+/// definition referencing a later definition is an error.
+fn definition_lets<'a>(
+    circuit: &'a CircuitIR,
+    by_id: &mut HashMap<usize, &'a str>,
+) -> Result<Vec<(&'a str, String)>, EmitError> {
+    let mut lets = Vec::with_capacity(circuit.definitions.len());
+    for def in &circuit.definitions {
+        validate_user_ident("definition", &def.name)?;
+        for term in &def.terms {
+            if term.vars.len() > 1 {
+                return Err(EmitError::NonLinearDefinition {
+                    definition: def.name.clone(),
+                });
+            }
+        }
+        let expr = emit_terms(&def.terms, by_id, &def.name)?;
+        if by_id.insert(def.id, def.name.as_str()).is_some() {
+            return Err(EmitError::DuplicateWitnessId(def.id));
+        }
+        lets.push((def.name.as_str(), expr));
+    }
+    Ok(lets)
+}
+
 /// Emit a decomposed Lean 4 proof scaffold with helper lemmas.
 ///
-/// For gadgets with multiple constraints, this emits intermediate helper lemmas
-/// that break the proof into smaller steps the LLM can tackle independently.
-/// Each constraint gets a lemma that extracts a useful equality from `expr = 0`.
-/// The main theorem then uses these helpers.
-pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
-    // Only decompose if there are ≥2 constraints and a soundness spec
-    if gadget.constraints.len() < 2 || gadget.soundness_spec.is_none() {
-        return emit_lean(gadget);
+/// For circuits with multiple constraints, this emits intermediate helper
+/// lemmas that break the proof into smaller steps the LLM can tackle
+/// independently. Each constraint gets a lemma that extracts a useful equality
+/// from `expr = 0`. The main theorem then uses these helpers.
+pub fn emit_lean_decomposed(circuit: &CircuitIR) -> Result<String, EmitError> {
+    // Only decompose if there are ≥2 constraints and a soundness spec.
+    // Circuits with definitions fall back to the plain scaffold: the helper
+    // lemmas would each need the whole `let` chain restated.
+    if circuit.constraints.len() < 2
+        || circuit.soundness_spec.is_none()
+        || !circuit.definitions.is_empty()
+    {
+        return emit_lean(circuit);
     }
 
-    let witness_names: Vec<&str> = gadget.witnesses.iter().map(|w| w.name.as_str()).collect();
-    let witness_by_id = witness_map(gadget)?;
-    let gadget_ident = sanitize_generated_ident(&gadget.name, "gadget");
+    let var_names: Vec<&str> = circuit.variables().map(|v| v.name.as_str()).collect();
+    let by_id = name_map(circuit)?;
+    let gadget_ident = sanitize_generated_ident(&circuit.name, "gadget");
     let theorem_name = format!("{}_sound", gadget_ident);
-    let constraint_labels = generated_constraint_labels(gadget)?;
+    let constraint_labels = generated_constraint_labels(circuit)?;
 
     let mut out = String::new();
 
@@ -68,19 +123,19 @@ pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
     out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
-    out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
+    out.push_str(&format!("/-!\n# {}\n\n", circuit.name));
     out.push_str(
         "Auto-generated by lean-emit (decomposed mode). Do not edit the theorem statement.\n\n",
     );
     out.push_str("Constraints:\n");
-    for c in &gadget.constraints {
+    for c in &circuit.constraints {
         out.push_str(&format!(
             "  {} : {} = 0\n",
             c.label,
-            emit_constraint_expr(c, &witness_by_id)?
+            emit_constraint_expr(c, &by_id)?
         ));
     }
-    if let Some(spec) = &gadget.soundness_spec {
+    if let Some(spec) = &circuit.soundness_spec {
         out.push_str(&format!("\nSoundness: {}\n", spec));
     }
     out.push_str("-/\n\n");
@@ -89,34 +144,34 @@ pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
     out.push_str("variable (p : ℕ) [Fact (Nat.Prime p)]\n\n");
 
     // -- helper lemmas: extract useful equalities from each constraint
-    for (c, label) in gadget.constraints.iter().zip(constraint_labels.iter()) {
-        let expr = emit_constraint_expr(c, &witness_by_id)?;
-        let rearranged = rearrange_constraint(c, &witness_by_id)?;
+    for (c, label) in circuit.constraints.iter().zip(constraint_labels.iter()) {
+        let expr = emit_constraint_expr(c, &by_id)?;
+        let rearranged = rearrange_constraint(c, &by_id)?;
 
         out.push_str(&format!(
             "/-- Extract useful equality from constraint `{}`. -/\n",
             label
         ));
         out.push_str(&format!("lemma {}_extract_{}\n", gadget_ident, label));
-        out.push_str(&format!("    ({} : ZMod p)\n", witness_names.join(" ")));
+        out.push_str(&format!("    ({} : ZMod p)\n", var_names.join(" ")));
         out.push_str(&format!("    (h : {} = 0) :\n", expr));
         out.push_str(&format!("    {} := by\n  sorry\n\n", rearranged));
     }
 
     // -- main theorem
     out.push_str(&format!("theorem {}\n", theorem_name));
-    out.push_str(&format!("    ({} : ZMod p)\n", witness_names.join(" ")));
+    out.push_str(&format!("    ({} : ZMod p)\n", var_names.join(" ")));
 
-    for h in &gadget.hypotheses {
+    for h in &circuit.hypotheses {
         out.push_str(&format!("    ({} : {})\n", h.name, h.lean_type));
     }
 
-    for (c, label) in gadget.constraints.iter().zip(constraint_labels.iter()) {
-        let expr = emit_constraint_expr(c, &witness_by_id)?;
+    for (c, label) in circuit.constraints.iter().zip(constraint_labels.iter()) {
+        let expr = emit_constraint_expr(c, &by_id)?;
         out.push_str(&format!("    (h_{} : {} = 0)\n", label, expr));
     }
 
-    let conclusion = match &gadget.soundness_spec {
+    let conclusion = match &circuit.soundness_spec {
         Some(spec) => format!("    : {}", spec),
         None => "    : True".to_string(),
     };
@@ -130,7 +185,7 @@ pub fn emit_lean_decomposed(gadget: &Gadget) -> Result<String, EmitError> {
             label,
             gadget_ident,
             label,
-            witness_names.join(" "),
+            var_names.join(" "),
             label
         ));
     }
@@ -165,12 +220,12 @@ fn next_prime_at_least(n: u64) -> u64 {
 }
 
 /// The field size for a refutation probe: the smallest prime satisfying every
-/// `p > N` hypothesis the gadget declares, and at least `min` (a floor like 5
+/// `p > N` hypothesis the circuit declares, and at least `min` (a floor like 5
 /// keeps degenerate tiny fields out). A refutation at one valid prime refutes
 /// the generic theorem.
-pub fn refutation_prime(gadget: &Gadget, min: u64) -> u64 {
+pub fn refutation_prime(circuit: &CircuitIR, min: u64) -> u64 {
     let mut lower = min.max(2);
-    for h in &gadget.hypotheses {
+    for h in &circuit.hypotheses {
         let t = h.lean_type.trim();
         if let Some(rest) = t.strip_prefix("p").map(str::trim_start) {
             if let Some(bound) = rest.strip_prefix('>').map(str::trim) {
@@ -202,8 +257,9 @@ fn substitute_p(s: &str, prime: u64) -> String {
     out
 }
 
-/// Emit a **refutation scaffold**: the gadget's soundness statement at a concrete
-/// small prime, negated, with a `sorry` body for the adversarial loop to fill.
+/// Emit a **refutation scaffold**: the circuit's soundness statement at a
+/// concrete small prime, negated, with a `sorry` body for the adversarial loop
+/// to fill.
 ///
 /// ```text
 /// theorem <name>_refuted :
@@ -212,22 +268,23 @@ fn substitute_p(s: &str, prime: u64) -> String {
 /// ```
 ///
 /// A kernel-accepted proof of this theorem is a concrete counterexample: values
-/// satisfying every constraint while violating the spec — the gadget is
+/// satisfying every constraint while violating the spec — the circuit is
 /// under-constrained (or the spec is wrong). Exhausting the budget without one
 /// is evidence, not proof, that the spec survives attack. The `#audit_axioms`
 /// gate holds refutations to the same axiom standard as proofs.
-pub fn emit_refutation(gadget: &Gadget, prime: u64) -> Result<String, EmitError> {
-    let spec = gadget
+pub fn emit_refutation(circuit: &CircuitIR, prime: u64) -> Result<String, EmitError> {
+    let spec = circuit
         .soundness_spec
         .as_ref()
         .ok_or(EmitError::MissingSpec)?;
-    let witness_names: Vec<&str> = gadget.witnesses.iter().map(|w| w.name.as_str()).collect();
-    let witness_by_id = witness_map(gadget)?;
+    let var_names: Vec<&str> = circuit.variables().map(|v| v.name.as_str()).collect();
+    let mut by_id = name_map(circuit)?;
+    let lets = definition_lets(circuit, &mut by_id)?;
     let theorem_name = format!(
         "{}_refuted",
-        sanitize_generated_ident(&gadget.name, "gadget")
+        sanitize_generated_ident(&circuit.name, "gadget")
     );
-    let constraint_labels = generated_constraint_labels(gadget)?;
+    let constraint_labels = generated_constraint_labels(circuit)?;
     let _ = constraint_labels; // labels documented in the header; antecedents are positional
 
     let mut out = String::new();
@@ -241,7 +298,7 @@ pub fn emit_refutation(gadget: &Gadget, prime: u64) -> Result<String, EmitError>
     out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
-    out.push_str(&format!("/-!\n# {} — refutation target\n\n", gadget.name));
+    out.push_str(&format!("/-!\n# {} — refutation target\n\n", circuit.name));
     out.push_str(
         "Auto-generated by lean-emit (refutation mode). Do not edit the theorem statement.\n\n",
     );
@@ -252,11 +309,11 @@ pub fn emit_refutation(gadget: &Gadget, prime: u64) -> Result<String, EmitError>
          under-constrained (or the spec is wrong).\n\n"
     ));
     out.push_str("Constraints:\n");
-    for c in &gadget.constraints {
+    for c in &circuit.constraints {
         out.push_str(&format!(
             "  {} : {} = 0\n",
             c.label,
-            emit_constraint_expr(c, &witness_by_id)?
+            emit_constraint_expr(c, &by_id)?
         ));
     }
     out.push_str(&format!("\nSpec under attack: {}\n", spec));
@@ -266,17 +323,24 @@ pub fn emit_refutation(gadget: &Gadget, prime: u64) -> Result<String, EmitError>
     out.push_str(&format!("theorem {}\n", theorem_name));
     out.push_str(&format!(
         "    : ¬ (∀ ({} : ZMod {prime}),\n",
-        witness_names.join(" ")
+        var_names.join(" ")
     ));
-    for h in &gadget.hypotheses {
+    for h in &circuit.hypotheses {
         out.push_str(&format!(
             "        {} →\n",
             substitute_p(&h.lean_type, prime)
         ));
     }
-    for c in &gadget.constraints {
+    for (name, expr) in &lets {
+        out.push_str(&format!(
+            "        let {} := {}\n",
+            name,
+            substitute_p(expr, prime)
+        ));
+    }
+    for c in &circuit.constraints {
         // constraint expressions can carry `(1 : ZMod p)`-style casts
-        let expr = substitute_p(&emit_constraint_expr(c, &witness_by_id)?, prime);
+        let expr = substitute_p(&emit_constraint_expr(c, &by_id)?, prime);
         out.push_str(&format!("        {} = 0 →\n", expr));
     }
     out.push_str(&format!(
@@ -302,10 +366,7 @@ fn audit_gate(theorem_name: &str) -> String {
 /// Rearrange a constraint `sum_of_terms = 0` into a more useful equality.
 ///
 /// Strategy: move negative terms to the RHS so we get `positives = negatives`.
-fn rearrange_constraint(
-    c: &Constraint,
-    witness_by_id: &HashMap<usize, &str>,
-) -> Result<String, EmitError> {
+fn rearrange_constraint(c: &Constraint, by_id: &HashMap<usize, &str>) -> Result<String, EmitError> {
     let mut lhs_parts = Vec::new();
     let mut rhs_parts = Vec::new();
 
@@ -314,22 +375,22 @@ fn rearrange_constraint(
         let negative = coeff.starts_with('-');
         let abs_coeff = if negative { &coeff[1..] } else { coeff };
 
-        let monomial =
-            if term.vars.is_empty() {
-                None
-            } else {
-                let mut names = Vec::new();
-                for &id in &term.vars {
-                    let name = witness_by_id.get(&id).copied().ok_or_else(|| {
-                        EmitError::UnknownWitnessId {
-                            constraint: c.label.clone(),
-                            id,
-                        }
+        let monomial = if term.vars.is_empty() {
+            None
+        } else {
+            let mut names = Vec::new();
+            for &id in &term.vars {
+                let name = by_id
+                    .get(&id)
+                    .copied()
+                    .ok_or_else(|| EmitError::UnknownWitnessId {
+                        constraint: c.label.clone(),
+                        id,
                     })?;
-                    names.push(name);
-                }
-                Some(names.join(" * "))
-            };
+                names.push(name);
+            }
+            Some(names.join(" * "))
+        };
 
         let expr = match (abs_coeff, &monomial) {
             ("1", Some(m)) => m.clone(),
@@ -347,7 +408,7 @@ fn rearrange_constraint(
 
     // If everything is on one side, fall back to `expr = 0`
     if lhs_parts.is_empty() || rhs_parts.is_empty() {
-        let expr = emit_constraint_expr(c, witness_by_id)?;
+        let expr = emit_constraint_expr(c, by_id)?;
         return Ok(format!("{} = 0", expr));
     }
 
@@ -358,16 +419,20 @@ fn rearrange_constraint(
     ))
 }
 
-/// Emit a Lean 4 proof scaffold from a gadget definition.
+/// Emit a Lean 4 proof scaffold from a circuit definition.
 ///
-/// The output contains imports, witness parameters, constraint hypotheses,
-/// and a `sorry` proof. The theorem statement is machine-generated;
-/// the proof is left for a human or LLM to fill in.
-pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
-    let witness_names: Vec<&str> = gadget.witnesses.iter().map(|w| w.name.as_str()).collect();
-    let witness_by_id = witness_map(gadget)?;
-    let theorem_name = format!("{}_sound", sanitize_generated_ident(&gadget.name, "gadget"));
-    let constraint_labels = generated_constraint_labels(gadget)?;
+/// The output contains imports, public/private variable parameters, constraint
+/// hypotheses, and a `sorry` proof. Definitions are emitted as `let` bindings
+/// ahead of the constraint antecedents. The theorem statement is
+/// machine-generated; the proof is left for a human or LLM to fill in.
+pub fn emit_lean(circuit: &CircuitIR) -> Result<String, EmitError> {
+    let mut by_id = name_map(circuit)?;
+    let lets = definition_lets(circuit, &mut by_id)?;
+    let theorem_name = format!(
+        "{}_sound",
+        sanitize_generated_ident(&circuit.name, "gadget")
+    );
+    let constraint_labels = generated_constraint_labels(circuit)?;
 
     let mut out = String::new();
 
@@ -382,17 +447,24 @@ pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
     out.push_str("import Mathlib.Tactic.LinearCombination\n\n");
 
     // -- doc comment
-    out.push_str(&format!("/-!\n# {}\n\n", gadget.name));
+    out.push_str(&format!("/-!\n# {}\n\n", circuit.name));
     out.push_str("Auto-generated by lean-emit. Do not edit the theorem statement.\n\n");
+    if !lets.is_empty() {
+        out.push_str("Definitions:\n");
+        for (name, expr) in &lets {
+            out.push_str(&format!("  {} := {}\n", name, expr));
+        }
+        out.push('\n');
+    }
     out.push_str("Constraints:\n");
-    for c in &gadget.constraints {
+    for c in &circuit.constraints {
         out.push_str(&format!(
             "  {} : {} = 0\n",
             c.label,
-            emit_constraint_expr(c, &witness_by_id)?
+            emit_constraint_expr(c, &by_id)?
         ));
     }
-    if let Some(spec) = &gadget.soundness_spec {
+    if let Some(spec) = &circuit.soundness_spec {
         out.push_str(&format!("\nSoundness: {}\n", spec));
     }
     out.push_str("-/\n\n");
@@ -403,26 +475,48 @@ pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
     // -- theorem
     out.push_str(&format!("theorem {}\n", theorem_name));
 
-    // witness parameters
-    out.push_str(&format!("    ({} : ZMod p)\n", witness_names.join(" ")));
+    // variable parameters: public and private as distinct binder groups
+    out.push_str(&variable_binders(circuit));
 
     // extra hypotheses (e.g. field-size bounds)
-    for h in &gadget.hypotheses {
+    for h in &circuit.hypotheses {
         out.push_str(&format!("    ({} : {})\n", h.name, h.lean_type));
     }
 
-    // constraint hypotheses
-    for (c, label) in gadget.constraints.iter().zip(constraint_labels.iter()) {
-        let expr = emit_constraint_expr(c, &witness_by_id)?;
-        out.push_str(&format!("    (h_{} : {} = 0)\n", label, expr));
-    }
+    if lets.is_empty() {
+        // constraint hypotheses as named binders
+        for (c, label) in circuit.constraints.iter().zip(constraint_labels.iter()) {
+            let expr = emit_constraint_expr(c, &by_id)?;
+            out.push_str(&format!("    (h_{} : {} = 0)\n", label, expr));
+        }
 
-    // conclusion
-    let conclusion = match &gadget.soundness_spec {
-        Some(spec) => format!("    : {}", spec),
-        None => "    : True".to_string(),
-    };
-    out.push_str(&conclusion);
+        // conclusion
+        let conclusion = match &circuit.soundness_spec {
+            Some(spec) => format!("    : {}", spec),
+            None => "    : True".to_string(),
+        };
+        out.push_str(&conclusion);
+    } else {
+        // Definitions must be in scope for the constraints, so the `let`
+        // chain opens the conclusion and the constraints follow as NAMED
+        // antecedent binders `(h_<label> : …) →`. The names matter: goal
+        // displays and `intro` default to them, which is what lets D2
+        // diagnostics map a stalled hypothesis back to a source constraint
+        // on definition-bearing (i.e. every ragu) circuit.
+        out.push_str("    : ");
+        for (i, (name, expr)) in lets.iter().enumerate() {
+            if i > 0 {
+                out.push_str("      ");
+            }
+            out.push_str(&format!("let {} := {}\n", name, expr));
+        }
+        for (c, label) in circuit.constraints.iter().zip(constraint_labels.iter()) {
+            let expr = emit_constraint_expr(c, &by_id)?;
+            out.push_str(&format!("      (h_{} : {} = 0) →\n", label, expr));
+        }
+        let spec = circuit.soundness_spec.as_deref().unwrap_or("True");
+        out.push_str(&format!("      {}", spec));
+    }
     out.push_str(" := by\n  sorry\n");
 
     // -- audit gate: proof must rest only on the trusted kernel axioms
@@ -431,18 +525,127 @@ pub fn emit_lean(gadget: &Gadget) -> Result<String, EmitError> {
     Ok(out)
 }
 
+/// The generated constraint hypothesis names (`h_<sanitized label>`), aligned
+/// index-for-index with `circuit.constraints`.
+///
+/// This is the same mapping the scaffold emitters use, exposed so diagnostics
+/// can translate a Lean hypothesis name back to the source constraint (and its
+/// `origin` span) instead of showing an engineer `h_c47`.
+pub fn constraint_hypothesis_names(circuit: &CircuitIR) -> Result<Vec<String>, EmitError> {
+    Ok(generated_constraint_labels(circuit)?
+        .into_iter()
+        .map(|label| format!("h_{label}"))
+        .collect())
+}
+
+/// The soundness theorem's `(name, ∀-type)` exactly as `emit_lean` declares
+/// it, rendered as a standalone Lean type expression.
+///
+/// This is what lets a caller *bind* a committed proof artifact to the
+/// current IR: `example : <type> := @<name>` is a kernel-checked assertion
+/// that the artifact's declaration proves precisely the statement this IR
+/// regenerates — not merely "some theorem that builds green".
+pub fn soundness_statement(circuit: &CircuitIR) -> Result<(String, String), EmitError> {
+    let mut by_id = name_map(circuit)?;
+    let lets = definition_lets(circuit, &mut by_id)?;
+    let constraint_labels = generated_constraint_labels(circuit)?;
+    let name = format!(
+        "{}_sound",
+        sanitize_generated_ident(&circuit.name, "gadget")
+    );
+
+    let mut ty = String::from("∀ (p : ℕ) [Fact (Nat.Prime p)]\n");
+    ty.push_str(&variable_binders(circuit));
+    for h in &circuit.hypotheses {
+        ty.push_str(&format!("    ({} : {})\n", h.name, h.lean_type));
+    }
+
+    if lets.is_empty() {
+        for (c, label) in circuit.constraints.iter().zip(constraint_labels.iter()) {
+            let expr = emit_constraint_expr(c, &by_id)?;
+            ty.push_str(&format!("    (h_{} : {} = 0)\n", label, expr));
+        }
+        let spec = circuit.soundness_spec.as_deref().unwrap_or("True");
+        ty.push_str(&format!("    , {}", spec));
+    } else {
+        ty.push_str("    , ");
+        for (i, (dname, expr)) in lets.iter().enumerate() {
+            if i > 0 {
+                ty.push_str("      ");
+            }
+            ty.push_str(&format!("let {} := {}\n", dname, expr));
+        }
+        for (c, label) in circuit.constraints.iter().zip(constraint_labels.iter()) {
+            let expr = emit_constraint_expr(c, &by_id)?;
+            ty.push_str(&format!("      (h_{} : {} = 0) →\n", label, expr));
+        }
+        let spec = circuit.soundness_spec.as_deref().unwrap_or("True");
+        ty.push_str(&format!("      {}", spec));
+    }
+
+    Ok((name, ty))
+}
+
+/// The refutation theorem's `(name, type)` at `prime`, exactly as
+/// `emit_refutation` declares it. Same binding purpose as
+/// [`soundness_statement`], for UNSOUND artifacts.
+pub fn refutation_statement(
+    circuit: &CircuitIR,
+    prime: u64,
+) -> Result<(String, String), EmitError> {
+    let spec = circuit
+        .soundness_spec
+        .as_ref()
+        .ok_or(EmitError::MissingSpec)?;
+    let var_names: Vec<&str> = circuit.variables().map(|v| v.name.as_str()).collect();
+    let mut by_id = name_map(circuit)?;
+    let lets = definition_lets(circuit, &mut by_id)?;
+    let name = format!(
+        "{}_refuted",
+        sanitize_generated_ident(&circuit.name, "gadget")
+    );
+
+    let mut ty = format!("¬ (∀ ({} : ZMod {prime}),\n", var_names.join(" "));
+    for h in &circuit.hypotheses {
+        ty.push_str(&format!(
+            "        {} →\n",
+            substitute_p(&h.lean_type, prime)
+        ));
+    }
+    for (dname, expr) in &lets {
+        ty.push_str(&format!(
+            "        let {} := {}\n",
+            dname,
+            substitute_p(expr, prime)
+        ));
+    }
+    for c in &circuit.constraints {
+        let expr = substitute_p(&emit_constraint_expr(c, &by_id)?, prime);
+        ty.push_str(&format!("        {} = 0 →\n", expr));
+    }
+    ty.push_str(&format!("        ({}))", substitute_p(spec, prime)));
+
+    Ok((name, ty))
+}
+
 /// Render a constraint as a Lean expression (without `= 0`).
-fn emit_constraint_expr(
-    c: &Constraint,
-    witness_by_id: &HashMap<usize, &str>,
+fn emit_constraint_expr(c: &Constraint, by_id: &HashMap<usize, &str>) -> Result<String, EmitError> {
+    emit_terms(&c.terms, by_id, &c.label)
+}
+
+/// Render a sum of terms as a Lean expression.
+fn emit_terms(
+    terms: &[Term],
+    by_id: &HashMap<usize, &str>,
+    context: &str,
 ) -> Result<String, EmitError> {
-    if c.terms.is_empty() {
+    if terms.is_empty() {
         return Ok("0".to_string());
     }
 
     let mut parts = Vec::new();
-    for (i, term) in c.terms.iter().enumerate() {
-        parts.push(emit_term(term, witness_by_id, &c.label, i == 0)?);
+    for (i, term) in terms.iter().enumerate() {
+        parts.push(emit_term(term, by_id, context, i == 0)?);
     }
     Ok(parts.join(" "))
 }
@@ -452,28 +655,27 @@ fn emit_constraint_expr(
 /// `is_first` controls whether a leading `+` is suppressed.
 fn emit_term(
     term: &Term,
-    witness_by_id: &HashMap<usize, &str>,
-    constraint: &str,
+    by_id: &HashMap<usize, &str>,
+    context: &str,
     is_first: bool,
 ) -> Result<String, EmitError> {
     let coeff = term.coeff.trim();
     let negative = coeff.starts_with('-');
     let abs_coeff = if negative { &coeff[1..] } else { coeff };
 
-    // monomial: product of witness names
+    // monomial: product of variable names
     let monomial: Option<String> = if term.vars.is_empty() {
         None
     } else {
         let mut var_names = Vec::with_capacity(term.vars.len());
         for &id in &term.vars {
-            let name =
-                witness_by_id
-                    .get(&id)
-                    .copied()
-                    .ok_or_else(|| EmitError::UnknownWitnessId {
-                        constraint: constraint.to_string(),
-                        id,
-                    })?;
+            let name = by_id
+                .get(&id)
+                .copied()
+                .ok_or_else(|| EmitError::UnknownWitnessId {
+                    constraint: context.to_string(),
+                    id,
+                })?;
             var_names.push(name);
         }
         Some(var_names.join(" * "))
@@ -501,38 +703,44 @@ fn emit_term(
     }
 }
 
-fn witness_map(gadget: &Gadget) -> Result<HashMap<usize, &str>, EmitError> {
-    let mut witness_by_id = HashMap::with_capacity(gadget.witnesses.len());
-    let mut witness_names = HashSet::with_capacity(gadget.witnesses.len());
+fn name_map(circuit: &CircuitIR) -> Result<HashMap<usize, &str>, EmitError> {
+    let mut by_id = HashMap::new();
+    let mut names = HashSet::new();
 
-    for witness in &gadget.witnesses {
-        validate_user_ident("witness", &witness.name)?;
-        if witness_by_id
-            .insert(witness.id, witness.name.as_str())
-            .is_some()
-        {
-            return Err(EmitError::DuplicateWitnessId(witness.id));
+    for variable in circuit.variables() {
+        validate_user_ident("witness", &variable.name)?;
+        if by_id.insert(variable.id, variable.name.as_str()).is_some() {
+            return Err(EmitError::DuplicateWitnessId(variable.id));
         }
-        if !witness_names.insert(witness.name.as_str()) {
+        if !names.insert(variable.name.as_str()) {
             return Err(EmitError::InvalidIdentifier {
                 kind: "duplicate witness",
-                name: witness.name.clone(),
+                name: variable.name.clone(),
             });
         }
     }
 
-    for h in &gadget.hypotheses {
+    for def in &circuit.definitions {
+        if !names.insert(def.name.as_str()) {
+            return Err(EmitError::InvalidIdentifier {
+                kind: "duplicate definition",
+                name: def.name.clone(),
+            });
+        }
+    }
+
+    for h in &circuit.hypotheses {
         validate_user_ident("hypothesis", &h.name)?;
     }
 
-    Ok(witness_by_id)
+    Ok(by_id)
 }
 
-fn generated_constraint_labels(gadget: &Gadget) -> Result<Vec<String>, EmitError> {
-    let mut seen = HashSet::with_capacity(gadget.constraints.len());
-    let mut labels = Vec::with_capacity(gadget.constraints.len());
+fn generated_constraint_labels(circuit: &CircuitIR) -> Result<Vec<String>, EmitError> {
+    let mut seen = HashSet::with_capacity(circuit.constraints.len());
+    let mut labels = Vec::with_capacity(circuit.constraints.len());
 
-    for constraint in &gadget.constraints {
+    for constraint in &circuit.constraints {
         let label = sanitize_generated_ident(&constraint.label, "constraint");
         if !seen.insert(label.clone()) {
             return Err(EmitError::DuplicateConstraintLabel(label));
@@ -649,7 +857,7 @@ fn is_lean_keyword(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gadget_ir::WitnessVar;
+    use circuit_ir::{Definition, Variable};
 
     fn examples_dir() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -660,11 +868,36 @@ mod tests {
             .join("examples")
     }
 
+    fn load(gadget: &str) -> CircuitIR {
+        circuit_ir::load_toml_file(&examples_dir().join(gadget).join("gadget.toml")).unwrap()
+    }
+
+    fn var(id: usize, name: &str) -> Variable {
+        Variable {
+            id,
+            name: name.to_string(),
+        }
+    }
+
+    fn term(coeff: &str, vars: &[usize]) -> Term {
+        Term {
+            coeff: coeff.to_string(),
+            vars: vars.to_vec(),
+        }
+    }
+
+    fn constraint(label: &str, terms: Vec<Term>) -> Constraint {
+        Constraint {
+            label: label.to_string(),
+            terms,
+            origin: None,
+        }
+    }
+
     #[test]
     fn emit_range_check() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("range-check/gadget.toml")).unwrap();
-        let out = emit_lean(&gadget).unwrap();
+        let circuit = load("range-check");
+        let out = emit_lean(&circuit).unwrap();
 
         // has theorem with correct name
         assert!(out.contains("theorem range_check_8bit_sound"));
@@ -690,12 +923,10 @@ mod tests {
 
     #[test]
     fn refutation_prime_honors_bounds() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("range-check/gadget.toml")).unwrap();
+        let circuit = load("range-check");
         // hp : p > 256 forces the probe past the bound, to the next prime.
-        assert_eq!(refutation_prime(&gadget, 5), 257);
-        let no_hyp =
-            gadget_ir::load_gadget_file(&examples_dir().join("poseidon-sbox/gadget.toml")).unwrap();
+        assert_eq!(refutation_prime(&circuit, 5), 257);
+        let no_hyp = load("poseidon-sbox");
         assert_eq!(refutation_prime(&no_hyp, 5), 5);
         assert_eq!(refutation_prime(&no_hyp, 6), 7);
     }
@@ -711,9 +942,8 @@ mod tests {
 
     #[test]
     fn emit_refutation_negates_statement_at_concrete_prime() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("range-check/gadget.toml")).unwrap();
-        let out = emit_refutation(&gadget, 257).unwrap();
+        let circuit = load("range-check");
+        let out = emit_refutation(&circuit, 257).unwrap();
 
         assert!(out.contains("theorem range_check_8bit_refuted"));
         // negated ∀ at the concrete prime; no generic field variable, no Fact binder
@@ -733,26 +963,19 @@ mod tests {
 
     #[test]
     fn emit_refutation_requires_a_spec() {
-        let gadget = Gadget {
+        let circuit = CircuitIR {
             name: "no-spec".into(),
             modulus: "7".into(),
-            soundness_spec: None,
-            hypotheses: vec![],
-            witnesses: vec![WitnessVar {
-                id: 0,
-                name: "x".into(),
-            }],
-            constraints: vec![],
+            private: vec![var(0, "x")],
+            ..Default::default()
         };
-        assert_eq!(emit_refutation(&gadget, 5), Err(EmitError::MissingSpec));
+        assert_eq!(emit_refutation(&circuit, 5), Err(EmitError::MissingSpec));
     }
 
     #[test]
     fn emit_conditional_select() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("conditional-select/gadget.toml"))
-                .unwrap();
-        let out = emit_lean(&gadget).unwrap();
+        let circuit = load("conditional-select");
+        let out = emit_lean(&circuit).unwrap();
 
         assert!(out.contains("theorem conditional_select_sound"));
         assert!(out.contains("(b x y z : ZMod p)"));
@@ -765,9 +988,8 @@ mod tests {
 
     #[test]
     fn emit_poseidon_sbox() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("poseidon-sbox/gadget.toml")).unwrap();
-        let out = emit_lean(&gadget).unwrap();
+        let circuit = load("poseidon-sbox");
+        let out = emit_lean(&circuit).unwrap();
         assert!(out.contains("theorem poseidon_sbox_sound"));
         assert!(out.contains("(x q r y : ZMod p)"));
         assert!(out.contains("h_square_1 : q - x * x = 0"));
@@ -778,9 +1000,8 @@ mod tests {
 
     #[test]
     fn emit_nonzero_check() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("nonzero-check/gadget.toml")).unwrap();
-        let out = emit_lean(&gadget).unwrap();
+        let circuit = load("nonzero-check");
+        let out = emit_lean(&circuit).unwrap();
         assert!(out.contains("theorem nonzero_check_sound"));
         assert!(out.contains("h_inverse : x * x_inv - (1 : ZMod p) = 0"));
         assert!(out.contains("x ≠ 0"));
@@ -788,10 +1009,8 @@ mod tests {
 
     #[test]
     fn emit_edwards_addition() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("edwards-addition/gadget.toml"))
-                .unwrap();
-        let out = emit_lean(&gadget).unwrap();
+        let circuit = load("edwards-addition");
+        let out = emit_lean(&circuit).unwrap();
         assert!(out.contains("theorem edwards_addition_sound"));
         assert!(out.contains("(x1 y1 x2 y2 x3 y3 : ZMod p)"));
         // hypotheses before constraints
@@ -806,9 +1025,8 @@ mod tests {
 
     #[test]
     fn emit_range_check_with_hypothesis() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("range-check/gadget.toml")).unwrap();
-        let out = emit_lean(&gadget).unwrap();
+        let circuit = load("range-check");
+        let out = emit_lean(&circuit).unwrap();
         assert!(out.contains("(hp : p > 256)"));
         // hypothesis appears before constraints
         let hp_pos = out.find("hp : p > 256").unwrap();
@@ -817,74 +1035,43 @@ mod tests {
     }
 
     #[test]
-    fn emits_terms_by_witness_id_not_position() {
-        let gadget = Gadget {
+    fn emits_terms_by_variable_id_not_position() {
+        let circuit = CircuitIR {
             name: "out-of-order".to_string(),
             modulus: "17".to_string(),
-            witnesses: vec![
-                WitnessVar {
-                    id: 10,
-                    name: "x".to_string(),
-                },
-                WitnessVar {
-                    id: 3,
-                    name: "y".to_string(),
-                },
-            ],
-            constraints: vec![Constraint {
-                label: "product".to_string(),
-                terms: vec![Term {
-                    coeff: "1".to_string(),
-                    vars: vec![3, 10],
-                }],
-            }],
-            hypotheses: vec![],
-            soundness_spec: None,
+            private: vec![var(10, "x"), var(3, "y")],
+            constraints: vec![constraint("product", vec![term("1", &[3, 10])])],
+            ..Default::default()
         };
 
-        let out = emit_lean(&gadget).unwrap();
+        let out = emit_lean(&circuit).unwrap();
         assert!(out.contains("h_product : y * x = 0"));
     }
 
     #[test]
-    fn rejects_unknown_witness_id() {
-        let gadget = Gadget {
+    fn rejects_unknown_variable_id() {
+        let circuit = CircuitIR {
             name: "bad-ref".to_string(),
             modulus: "17".to_string(),
-            witnesses: vec![WitnessVar {
-                id: 0,
-                name: "x".to_string(),
-            }],
-            constraints: vec![Constraint {
-                label: "missing".to_string(),
-                terms: vec![Term {
-                    coeff: "1".to_string(),
-                    vars: vec![1],
-                }],
-            }],
-            hypotheses: vec![],
-            soundness_spec: None,
+            private: vec![var(0, "x")],
+            constraints: vec![constraint("missing", vec![term("1", &[1])])],
+            ..Default::default()
         };
 
-        let err = emit_lean(&gadget).unwrap_err();
+        let err = emit_lean(&circuit).unwrap_err();
         assert!(matches!(err, EmitError::UnknownWitnessId { id: 1, .. }));
     }
 
     #[test]
     fn rejects_invalid_user_identifier() {
-        let gadget = Gadget {
+        let circuit = CircuitIR {
             name: "bad-ident".to_string(),
             modulus: "17".to_string(),
-            witnesses: vec![WitnessVar {
-                id: 0,
-                name: "x-bad".to_string(),
-            }],
-            constraints: vec![],
-            hypotheses: vec![],
-            soundness_spec: None,
+            private: vec![var(0, "x-bad")],
+            ..Default::default()
         };
 
-        let err = emit_lean(&gadget).unwrap_err();
+        let err = emit_lean(&circuit).unwrap_err();
         assert!(matches!(
             err,
             EmitError::InvalidIdentifier {
@@ -895,11 +1082,199 @@ mod tests {
     }
 
     #[test]
+    fn public_and_private_are_distinct_binder_groups() {
+        let circuit = CircuitIR {
+            name: "split".to_string(),
+            modulus: "17".to_string(),
+            public: vec![var(0, "out")],
+            private: vec![var(1, "w")],
+            constraints: vec![constraint("bind", vec![term("1", &[0]), term("-1", &[1])])],
+            ..Default::default()
+        };
+
+        let out = emit_lean(&circuit).unwrap();
+        // two separate binder lines, public first
+        assert!(out.contains("    (out : ZMod p)\n    (w : ZMod p)\n"));
+        assert!(out.contains("h_bind : out - w = 0"));
+    }
+
+    #[test]
+    fn definitions_emit_as_let_bindings_before_constraints() {
+        let circuit = CircuitIR {
+            name: "with-def".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x"), var(1, "y"), var(2, "z")],
+            definitions: vec![Definition {
+                id: 3,
+                name: "s".to_string(),
+                terms: vec![term("1", &[0]), term("2", &[1])],
+            }],
+            // the constraint references the definition by id, like a variable
+            constraints: vec![constraint(
+                "uses_s",
+                vec![term("1", &[3, 3]), term("-1", &[2])],
+            )],
+            soundness_spec: Some("z = (x + 2 * y) ^ 2".to_string()),
+            ..Default::default()
+        };
+
+        let out = emit_lean(&circuit).unwrap();
+        assert!(out.contains("let s := x + 2 * y\n"));
+        // constraint mentions the definition by name, not its expansion, and
+        // keeps its NAMED h_<label> binder so goal displays / intro / D2
+        // citations still see the generated hypothesis name
+        assert!(out.contains("(h_uses_s : s * s - z = 0) →"));
+        // let binding comes before the constraint antecedent that uses it
+        assert!(out.find("let s :=").unwrap() < out.find("(h_uses_s :").unwrap());
+        assert!(out.contains("z = (x + 2 * y) ^ 2 := by"));
+        // and the hypothesis-name helper agrees
+        assert_eq!(
+            constraint_hypothesis_names(&circuit).unwrap(),
+            vec!["h_uses_s"]
+        );
+    }
+
+    #[test]
+    fn soundness_statement_mirrors_emit_lean() {
+        // The regenerated ∀-type must carry exactly the pieces the scaffold
+        // theorem declares — same binders, same constraint expressions, same
+        // spec — or artifact binding would be vacuous.
+        let circuit = load("range-check");
+        let (name, ty) = soundness_statement(&circuit).unwrap();
+        assert_eq!(name, "range_check_8bit_sound");
+        assert!(ty.starts_with("∀ (p : ℕ) [Fact (Nat.Prime p)]"));
+        assert!(ty.contains("(x b0 b1 b2 b3 b4 b5 b6 b7 : ZMod p)"));
+        assert!(ty.contains("(hp : p > 256)"));
+        assert!(ty.contains("(h_bit_0 : b0 * b0 - b0 = 0)"));
+        assert!(ty.trim_end().ends_with(", ZMod.val x < 256"));
+
+        // definition-bearing circuits keep the let-chain + named arrows
+        let with_def = CircuitIR {
+            name: "with-def".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x"), var(1, "z")],
+            definitions: vec![Definition {
+                id: 2,
+                name: "s".to_string(),
+                terms: vec![term("2", &[0])],
+            }],
+            constraints: vec![constraint(
+                "uses_s",
+                vec![term("1", &[2]), term("-1", &[1])],
+            )],
+            soundness_spec: Some("z = 2 * x".to_string()),
+            ..Default::default()
+        };
+        let (_, ty) = soundness_statement(&with_def).unwrap();
+        assert!(ty.contains("let s := 2 * x\n"));
+        assert!(ty.contains("(h_uses_s : s - z = 0) →"));
+    }
+
+    #[test]
+    fn refutation_statement_mirrors_emit_refutation() {
+        let circuit = load("range-check");
+        let (name, ty) = refutation_statement(&circuit, 257).unwrap();
+        assert_eq!(name, "range_check_8bit_refuted");
+        assert!(ty.starts_with("¬ (∀ (x b0 b1 b2 b3 b4 b5 b6 b7 : ZMod 257),"));
+        assert!(ty.contains("257 > 256 →"));
+        assert!(ty.contains("b0 * b0 - b0 = 0 →"));
+        assert!(ty.trim_end().ends_with("(ZMod.val x < 256))"));
+        // and the emitted refutation scaffold contains this exact type
+        let scaffold = emit_refutation(&circuit, 257).unwrap();
+        for line in ty.lines().take(3) {
+            assert!(scaffold.contains(line.trim()), "missing: {line}");
+        }
+    }
+
+    #[test]
+    fn refutation_carries_definitions_at_the_probe_prime() {
+        let circuit = CircuitIR {
+            name: "with-def".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x"), var(1, "y")],
+            definitions: vec![Definition {
+                id: 2,
+                name: "s".to_string(),
+                terms: vec![term("1", &[0]), term("1", &[1]), term("1", &[])],
+            }],
+            constraints: vec![constraint("zero_sum", vec![term("1", &[2])])],
+            soundness_spec: Some("x + y + 1 = 0".to_string()),
+            ..Default::default()
+        };
+
+        let out = emit_refutation(&circuit, 5).unwrap();
+        // the constant term's cast is concretized inside the let binding
+        assert!(out.contains("let s := x + y + (1 : ZMod 5)"));
+        assert!(out.contains("s = 0 →"));
+    }
+
+    #[test]
+    fn rejects_non_linear_definition() {
+        let circuit = CircuitIR {
+            name: "bad-def".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x")],
+            definitions: vec![Definition {
+                id: 1,
+                name: "sq".to_string(),
+                terms: vec![term("1", &[0, 0])],
+            }],
+            ..Default::default()
+        };
+
+        let err = emit_lean(&circuit).unwrap_err();
+        assert!(matches!(err, EmitError::NonLinearDefinition { .. }));
+    }
+
+    #[test]
+    fn definitions_may_reference_earlier_definitions_only() {
+        let base = |defs: Vec<Definition>| CircuitIR {
+            name: "chain".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x")],
+            definitions: defs,
+            constraints: vec![constraint("c", vec![term("1", &[0])])],
+            ..Default::default()
+        };
+
+        // forward chain works
+        let ok = base(vec![
+            Definition {
+                id: 1,
+                name: "a".to_string(),
+                terms: vec![term("2", &[0])],
+            },
+            Definition {
+                id: 2,
+                name: "b".to_string(),
+                terms: vec![term("1", &[1])],
+            },
+        ]);
+        let out = emit_lean(&ok).unwrap();
+        assert!(out.contains("let a := 2 * x\n"));
+        assert!(out.contains("let b := a\n"));
+
+        // referencing a later definition fails
+        let bad = base(vec![
+            Definition {
+                id: 1,
+                name: "a".to_string(),
+                terms: vec![term("1", &[2])],
+            },
+            Definition {
+                id: 2,
+                name: "b".to_string(),
+                terms: vec![term("1", &[0])],
+            },
+        ]);
+        let err = emit_lean(&bad).unwrap_err();
+        assert!(matches!(err, EmitError::UnknownWitnessId { id: 2, .. }));
+    }
+
+    #[test]
     fn decompose_edwards_addition() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("edwards-addition/gadget.toml"))
-                .unwrap();
-        let out = emit_lean_decomposed(&gadget).unwrap();
+        let circuit = load("edwards-addition");
+        let out = emit_lean_decomposed(&circuit).unwrap();
         // Should have helper lemmas
         assert!(out.contains("lemma edwards_addition_extract_add_x"));
         assert!(out.contains("lemma edwards_addition_extract_add_y"));
@@ -915,9 +1290,8 @@ mod tests {
 
     #[test]
     fn decompose_poseidon_sbox() {
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("poseidon-sbox/gadget.toml")).unwrap();
-        let out = emit_lean_decomposed(&gadget).unwrap();
+        let circuit = load("poseidon-sbox");
+        let out = emit_lean_decomposed(&circuit).unwrap();
         assert!(out.contains("lemma poseidon_sbox_extract_square_1"));
         assert!(out.contains("lemma poseidon_sbox_extract_square_2"));
         assert!(out.contains("lemma poseidon_sbox_extract_output"));
@@ -933,9 +1307,8 @@ mod tests {
     #[test]
     fn decompose_skips_simple_gadgets() {
         // nonzero-check has only 1 constraint, should fall back to emit_lean
-        let gadget =
-            gadget_ir::load_gadget_file(&examples_dir().join("nonzero-check/gadget.toml")).unwrap();
-        let out = emit_lean_decomposed(&gadget).unwrap();
+        let circuit = load("nonzero-check");
+        let out = emit_lean_decomposed(&circuit).unwrap();
         // Should NOT have extract lemmas
         assert!(!out.contains("extract_"));
         // Should have the normal theorem
@@ -943,26 +1316,64 @@ mod tests {
     }
 
     #[test]
-    fn sanitizes_generated_identifiers() {
-        let gadget = Gadget {
-            name: "8-bit gadget!".to_string(),
+    fn decompose_falls_back_when_definitions_present() {
+        let circuit = CircuitIR {
+            name: "defs".to_string(),
             modulus: "17".to_string(),
-            witnesses: vec![WitnessVar {
-                id: 0,
-                name: "x".to_string(),
+            private: vec![var(0, "x"), var(1, "y")],
+            definitions: vec![Definition {
+                id: 2,
+                name: "s".to_string(),
+                terms: vec![term("1", &[0]), term("1", &[1])],
             }],
-            constraints: vec![Constraint {
-                label: "select-value!".to_string(),
-                terms: vec![Term {
-                    coeff: "1".to_string(),
-                    vars: vec![0],
-                }],
-            }],
-            hypotheses: vec![],
-            soundness_spec: None,
+            constraints: vec![
+                constraint("c1", vec![term("1", &[2])]),
+                constraint("c2", vec![term("1", &[0])]),
+            ],
+            soundness_spec: Some("x = 0".to_string()),
+            ..Default::default()
         };
 
-        let out = emit_lean(&gadget).unwrap();
+        let out = emit_lean_decomposed(&circuit).unwrap();
+        assert!(!out.contains("extract_"));
+        assert!(out.contains("let s := x + y"));
+    }
+
+    #[test]
+    fn hypothesis_names_align_with_constraints_and_sanitize() {
+        let circuit = CircuitIR {
+            name: "n".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x")],
+            constraints: vec![
+                constraint("bit_0", vec![term("1", &[0])]),
+                constraint("select-value!", vec![term("1", &[0])]),
+            ],
+            ..Default::default()
+        };
+        let names = constraint_hypothesis_names(&circuit).unwrap();
+        assert_eq!(names, vec!["h_bit_0", "h_select_value"]);
+        // and they match what the scaffold actually emits
+        let out = emit_lean(&circuit).unwrap();
+        for n in &names {
+            assert!(
+                out.contains(&format!("({n} :")),
+                "{n} missing from scaffold"
+            );
+        }
+    }
+
+    #[test]
+    fn sanitizes_generated_identifiers() {
+        let circuit = CircuitIR {
+            name: "8-bit gadget!".to_string(),
+            modulus: "17".to_string(),
+            private: vec![var(0, "x")],
+            constraints: vec![constraint("select-value!", vec![term("1", &[0])])],
+            ..Default::default()
+        };
+
+        let out = emit_lean(&circuit).unwrap();
         assert!(out.contains("theorem gadget_8_bit_gadget_sound"));
         assert!(out.contains("h_select_value : x = 0"));
     }

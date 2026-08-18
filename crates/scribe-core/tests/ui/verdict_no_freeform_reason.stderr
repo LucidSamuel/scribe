@@ -1,0 +1,7 @@
+error[E0277]: the trait bound `UnmeasuredReason: From<&str>` is not satisfied
+  --> tests/ui/verdict_no_freeform_reason.rs:10:28
+   |
+10 |             reason: "TODO".into(),
+   |                            ^^^^ the trait `From<&str>` is not implemented for `UnmeasuredReason`
+   |
+   = note: required for `&str` to implement `Into<UnmeasuredReason>`

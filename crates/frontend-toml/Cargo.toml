@@ -1,0 +1,13 @@
+[package]
+name = "frontend-toml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Frontend for hand-written gadget TOML files — the regression anchor"
+
+[dependencies]
+circuit-ir = { path = "../circuit-ir" }
+scribe-frontend = { path = "../scribe-frontend" }
+
+[dev-dependencies]
+lean-emit = { path = "../lean-emit" }

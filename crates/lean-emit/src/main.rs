@@ -10,15 +10,15 @@ fn main() {
     let path = PathBuf::from(&args[1]);
     let decompose = args.iter().any(|a| a == "--decompose");
 
-    let gadget = gadget_ir::load_gadget_file(&path).unwrap_or_else(|e| {
+    let circuit = circuit_ir::load_toml_file(&path).unwrap_or_else(|e| {
         eprintln!("error loading {}: {}", path.display(), e);
         std::process::exit(1);
     });
 
     let lean_source = if decompose {
-        lean_emit::emit_lean_decomposed(&gadget)
+        lean_emit::emit_lean_decomposed(&circuit)
     } else {
-        lean_emit::emit_lean(&gadget)
+        lean_emit::emit_lean(&circuit)
     }
     .unwrap_or_else(|e| {
         eprintln!("error emitting Lean for {}: {}", path.display(), e);

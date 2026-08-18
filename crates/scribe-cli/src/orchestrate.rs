@@ -11,10 +11,13 @@ use proof_pilot::notes::{render_notes_styled, NotesStyle};
 use proof_pilot::session::{self, SessionConfig, SessionResult};
 use proof_pilot::transcript;
 
+use crate::cache;
+use crate::citations::SourceCitations;
 use crate::demo_cmd::DemoArgs;
 use crate::extract;
 use crate::judge_cmd::JudgeArgs;
 use crate::refute_cmd::RefuteArgs;
+use crate::verdict;
 use crate::verify_cmd::VerifyArgs;
 
 // ── Default paths / environment ──────────────────────────────────────────────
@@ -74,7 +77,7 @@ fn resolve_prompt_from(
 }
 
 /// Resolve the lake dir: explicit `--lake-dir` → `$LAKE_DIR` → `lean`.
-fn resolve_lake_dir(explicit: Option<&str>) -> String {
+pub(crate) fn resolve_lake_dir(explicit: Option<&str>) -> String {
     resolve_dir(explicit, std::env::var("LAKE_DIR").ok(), "lean")
 }
 
@@ -276,7 +279,17 @@ fn scribe_notes_style() -> NotesStyle {
 
 /// Render and write a NOTES.md debugging report from the session journal.
 fn write_notes(journal: &SessionJournal, path: &str) {
-    let md = render_notes_styled(journal, &scribe_notes_style());
+    write_notes_with_extra(journal, path, None);
+}
+
+/// `write_notes`, with an optional extra Markdown section appended — used for
+/// the D2 source-constraint citations, which proof-pilot's generic notes
+/// renderer deliberately knows nothing about.
+fn write_notes_with_extra(journal: &SessionJournal, path: &str, extra: Option<String>) {
+    let mut md = render_notes_styled(journal, &scribe_notes_style());
+    if let Some(extra) = extra {
+        md.push_str(&extra);
+    }
     match fs::write(path, md) {
         Ok(()) => eprintln!("[scribe] notes written to: {path}"),
         Err(e) => eprintln!("[scribe] warning: could not write notes: {e}"),
@@ -292,6 +305,10 @@ fn handle_session_result(result: SessionResult, lean_file: &str) {
                 eprintln!("[scribe] proof complete in {iterations} iteration(s)");
             }
             println!("PROVEN: {lean_file}");
+            println!(
+                "{}",
+                verdict::accept_line(&format!("kernel-accepted proof at {lean_file}"))
+            );
         }
         SessionResult::Exhausted {
             iterations,
@@ -299,6 +316,12 @@ fn handle_session_result(result: SessionResult, lean_file: &str) {
         } => {
             eprintln!("[scribe] gave up after {iterations} iteration(s)");
             eprintln!("last build error:\n{last_error}");
+            println!(
+                "{}",
+                verdict::undetermined_line(&format!(
+                    "no kernel-accepted proof within {iterations} iteration(s) for {lean_file}"
+                ))
+            );
             process::exit(1);
         }
         SessionResult::Failed(msg) => {
@@ -444,6 +467,12 @@ pub fn run_refute(args: RefuteArgs) {
                  the counterexample is in the proof of {out_path}"
             );
             println!("REFUTED: {out_path}");
+            println!(
+                "{}",
+                verdict::reject_line(&format!(
+                    "kernel-checked counterexample at {out_path} (p = {prime})"
+                ))
+            );
             process::exit(2);
         }
         SessionResult::Exhausted { iterations, .. } => {
@@ -452,6 +481,13 @@ pub fn run_refute(args: RefuteArgs) {
                  at p = {prime} (evidence, not proof, of soundness)"
             );
             println!("SURVIVED: {}", args.gadget);
+            println!(
+                "{}",
+                verdict::undetermined_line(&format!(
+                    "spec survived {iterations} refutation attempt(s) at p = {prime} — \
+                     evidence, not proof"
+                ))
+            );
         }
         SessionResult::Failed(msg) => {
             eprintln!("[scribe] fatal error: {msg}");
@@ -477,12 +513,66 @@ const EXIT_INFRA: i32 = 3;
 /// or two, so this order minimizes expected cost. Only when proving exhausts
 /// its budget does the adversarial refuter run.
 pub fn run_judge(args: JudgeArgs) {
-    let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
+    // Same loader as `scribe check` — the two commands must agree on
+    // provenance stamping or their fingerprints diverge and the cache never
+    // hits across them.
+    let gadget = crate::check::load_ir(&args.gadget).unwrap_or_else(|e| {
         eprintln!("error: cannot load gadget {}: {e}", args.gadget);
         process::exit(EXIT_INFRA);
     });
 
     let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
+
+    // ── Fingerprint cache (D4): an unchanged circuit re-uses its committed
+    // kernel-checked artifact and never calls a model. A hit requires the
+    // artifact AND the proof environment to match record time. ──────────────
+    let fp = cache::fingerprint(&gadget);
+    let cache_dir = cache::default_dir();
+    if !args.no_cache {
+        if let Some(rec) = cache::lookup(&cache_dir, &fp) {
+            match cache::verify_hit(&rec, &lake_dir) {
+                Ok(()) => {
+                    eprintln!(
+                        "[scribe judge] cache HIT {} → {} (kernel-checked, recorded by {})",
+                        cache::short(&fp),
+                        rec.artifact,
+                        rec.recorded_by
+                    );
+                    eprintln!(
+                        "[scribe judge] no model called — pass --no-cache to re-judge from scratch"
+                    );
+                    match rec.verdict {
+                        cache::CachedVerdict::Sound => {
+                            println!("SOUND: {}", rec.artifact);
+                            println!(
+                                "{}",
+                                verdict::accept_line(&format!(
+                                    "kernel-accepted proof at {} (cache hit {})",
+                                    rec.artifact,
+                                    cache::short(&fp)
+                                ))
+                            );
+                            process::exit(EXIT_SOUND);
+                        }
+                        cache::CachedVerdict::Unsound => {
+                            println!("UNSOUND: {}", rec.artifact);
+                            println!(
+                                "{}",
+                                verdict::reject_line(&format!(
+                                    "kernel-checked counterexample at {} (cache hit {})",
+                                    rec.artifact,
+                                    cache::short(&fp)
+                                ))
+                            );
+                            process::exit(EXIT_UNSOUND);
+                        }
+                    }
+                }
+                Err(why) => eprintln!("[scribe judge] ignoring cache record: {why}"),
+            }
+        }
+    }
+
     let sanitized: String = gadget
         .name
         .chars()
@@ -536,20 +626,71 @@ pub fn run_judge(args: JudgeArgs) {
         use_lsp: false,
         samples_per_iter: args.samples_per_iter,
     };
-    match session::run(&prove_config, backend.as_ref()).0 {
+    let (prove_result, prove_journal) = session::run(&prove_config, backend.as_ref());
+    match prove_result {
         SessionResult::Proven { iterations } => {
             eprintln!("[scribe judge] kernel accepted a proof in {iterations} iteration(s)");
+            // Bind the artifact to this IR before caching: the probe
+            // re-checks with the kernel that the proved declaration has
+            // exactly the regenerated statement, audits its axioms, and runs
+            // C1. A verdict that cannot pass its own binding probe is not
+            // cached.
+            match crate::check::bind_and_audit(
+                &gadget,
+                &prove_path,
+                &lake_dir,
+                crate::check::BindTarget::Soundness,
+            ) {
+                Ok(audits) => match cache::record_verdict(
+                    &cache_dir,
+                    &gadget,
+                    cache::CachedVerdict::Sound,
+                    &prove_path,
+                    "judge",
+                    &lake_dir,
+                    None,
+                    audits,
+                ) {
+                    Ok(_) => eprintln!(
+                        "[scribe judge] verdict cached ({}) — commit {prove_path}; it is the evidence",
+                        cache::short(&fp)
+                    ),
+                    Err(e) => eprintln!("[scribe judge] warning: could not cache verdict: {e}"),
+                },
+                Err(why) => eprintln!(
+                    "[scribe judge] warning: proof accepted but not cached — binding probe \
+                     failed: {why}"
+                ),
+            }
             println!("SOUND: {prove_path}");
+            println!(
+                "{}",
+                verdict::accept_line(&format!("kernel-accepted proof at {prove_path}"))
+            );
             process::exit(EXIT_SOUND);
         }
         SessionResult::Failed(msg) => {
             eprintln!("[scribe judge] fatal error in prove phase: {msg}");
             process::exit(EXIT_INFRA);
         }
-        SessionResult::Exhausted { iterations, .. } => {
+        SessionResult::Exhausted {
+            iterations,
+            ref last_error,
+        } => {
             eprintln!(
                 "[scribe judge] no proof in {iterations} iteration(s) — \
                  escalating to the refuter"
+            );
+            // D2: translate the stall out of Lean vocabulary. Which circuit
+            // constraints do the failing hypotheses correspond to?
+            let cites = SourceCitations::from_ir(&gadget, &args.gadget);
+            if let Some(report) = cites.render_terminal(last_error) {
+                eprintln!("[scribe judge] {report}");
+            }
+            write_notes_with_extra(
+                &prove_journal,
+                &format!("{prove_path}.notes.md"),
+                cites.render_markdown(last_error),
             );
         }
     }
@@ -574,7 +715,7 @@ pub fn run_judge(args: JudgeArgs) {
 
     let refute_config = SessionConfig {
         lean_file: refute_path.clone(),
-        lake_dir,
+        lake_dir: lake_dir.clone(),
         max_iterations: args.refute_iters,
         system_prompt: read_prompt(resolve_refuter_prompt(None)),
         transcript: None,
@@ -587,7 +728,40 @@ pub fn run_judge(args: JudgeArgs) {
                 "[scribe judge] ⚠ kernel-checked counterexample found in {iterations} \
                  iteration(s) at p = {prime}"
             );
+            match crate::check::bind_and_audit(
+                &gadget,
+                &refute_path,
+                &lake_dir,
+                crate::check::BindTarget::Refutation { prime },
+            ) {
+                Ok(audits) => match cache::record_verdict(
+                    &cache_dir,
+                    &gadget,
+                    cache::CachedVerdict::Unsound,
+                    &refute_path,
+                    "judge",
+                    &lake_dir,
+                    Some(prime),
+                    audits,
+                ) {
+                    Ok(_) => eprintln!(
+                        "[scribe judge] verdict cached ({}) — commit {refute_path}; it is the evidence",
+                        cache::short(&fp)
+                    ),
+                    Err(e) => eprintln!("[scribe judge] warning: could not cache verdict: {e}"),
+                },
+                Err(why) => eprintln!(
+                    "[scribe judge] warning: refutation accepted but not cached — binding \
+                     probe failed: {why}"
+                ),
+            }
             println!("UNSOUND: {refute_path}");
+            println!(
+                "{}",
+                verdict::reject_line(&format!(
+                    "kernel-checked counterexample at {refute_path} (p = {prime})"
+                ))
+            );
             process::exit(EXIT_UNSOUND);
         }
         SessionResult::Failed(msg) => {
@@ -600,6 +774,13 @@ pub fn run_judge(args: JudgeArgs) {
                  the spec's status is genuinely open at these budgets"
             );
             println!("UNDETERMINED: {}", args.gadget);
+            println!(
+                "{}",
+                verdict::undetermined_line(&format!(
+                    "neither proof ({} iters) nor refutation ({} iters) within budget",
+                    args.prove_iters, args.refute_iters
+                ))
+            );
             process::exit(EXIT_UNDETERMINED);
         }
     }

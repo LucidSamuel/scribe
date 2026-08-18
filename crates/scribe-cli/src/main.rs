@@ -1,10 +1,14 @@
 use clap::{Parser, Subcommand};
 use std::process;
 
+mod cache;
+mod check;
+mod citations;
 mod extract;
 mod golf;
 mod init;
 mod orchestrate;
+mod verdict;
 
 /// scribe — formal verification of ZK circuit gadgets using Lean 4.
 ///
@@ -76,6 +80,24 @@ enum Commands {
     ///   2 = UNSOUND      (kernel-checked counterexample to the spec)
     ///   3 = infrastructure error
     Judge(judge_cmd::JudgeArgs),
+
+    /// Fast, free static checks — no LLM, no API key, seconds not minutes.
+    ///
+    /// Verifies that the circuit extracts, that the IR validates against
+    /// schema/circuit-ir-v1.json, that the theorem statement elaborates as
+    /// Lean (typo tier — needs `lake`, never a model), and whether a
+    /// kernel-checked artifact is already on file for this exact circuit +
+    /// spec (fingerprint cache).
+    ///
+    /// Exit codes (same convention as `judge` — script against them):
+    ///   0 = SOUND        (kernel-checked proof on file for this fingerprint)
+    ///   1 = UNDETERMINED (static checks pass; nothing proven — run `judge`)
+    ///   2 = UNSOUND      (kernel-checked counterexample on file)
+    ///   3 = input / infrastructure error (any failing static check)
+    ///
+    /// Static checks alone never exit 0: an exit 0 from `check` always means
+    /// kernel-checked evidence exists.
+    Check(check_cmd::CheckArgs),
 
     /// zkGolf competition mode: prove the five obligations of a zk.golf
     /// challenge inside the zk-golf-challenges lake project.
@@ -352,7 +374,7 @@ mod judge_cmd {
 
     #[derive(Args)]
     pub struct JudgeArgs {
-        /// Gadget IR file (TOML) to judge.
+        /// Circuit to judge: gadget TOML, or CircuitIR JSON (`.json`).
         #[arg(long, value_name = "FILE")]
         pub gadget: String,
 
@@ -393,6 +415,41 @@ mod judge_cmd {
         /// API base URL override.
         #[arg(long, value_name = "URL")]
         pub base_url: Option<String>,
+
+        /// Skip the fingerprint cache and re-judge even if a kernel-checked
+        /// artifact is already recorded for this exact circuit + spec.
+        #[arg(long)]
+        pub no_cache: bool,
+    }
+}
+
+mod check_cmd {
+    use clap::Args;
+
+    #[derive(Args)]
+    pub struct CheckArgs {
+        /// Circuit to check: gadget TOML, or CircuitIR JSON (`.json`,
+        /// ir_version enforced).
+        #[arg(long, value_name = "FILE")]
+        pub gadget: String,
+
+        /// Lake project directory (default: $LAKE_DIR env var, else `lean`).
+        #[arg(long, value_name = "DIR")]
+        pub lake_dir: Option<String>,
+
+        /// Skip the Lean elaboration probe (the only step that needs `lake`).
+        #[arg(long)]
+        pub no_elab: bool,
+
+        /// Skip the fingerprint cache lookup.
+        #[arg(long)]
+        pub no_cache: bool,
+
+        /// Verify a committed Lean proof file with the kernel (lake build,
+        /// #audit_axioms gate required) and record it as the SOUND evidence
+        /// for this circuit's fingerprint.
+        #[arg(long, value_name = "LEAN_FILE")]
+        pub record: Option<String>,
     }
 }
 
@@ -418,6 +475,9 @@ fn main() {
         }
         Commands::Judge(args) => {
             orchestrate::run_judge(args);
+        }
+        Commands::Check(args) => {
+            check::run_check(args);
         }
         Commands::Golf(args) => {
             golf::run(args);
@@ -752,5 +812,57 @@ mod tests {
     fn init_requires_circuit() {
         let result = Cli::try_parse_from(["scribe", "init"]);
         assert!(result.is_err(), "clap should require --circuit");
+    }
+
+    #[test]
+    fn check_args_parse_with_defaults() {
+        let cli =
+            Cli::try_parse_from(["scribe", "check", "--gadget", "g.toml"]).expect("should parse");
+        if let Commands::Check(args) = cli.command {
+            assert_eq!(args.gadget, "g.toml");
+            assert!(!args.no_elab);
+            assert!(!args.no_cache);
+            assert!(args.record.is_none());
+        } else {
+            panic!("expected Check");
+        }
+
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "check",
+            "--gadget",
+            "g.toml",
+            "--no-elab",
+            "--record",
+            "lean/ZkGadgets/RangeCheck.lean",
+        ])
+        .expect("should parse");
+        if let Commands::Check(args) = cli.command {
+            assert!(args.no_elab);
+            assert_eq!(
+                args.record.as_deref(),
+                Some("lean/ZkGadgets/RangeCheck.lean")
+            );
+        } else {
+            panic!("expected Check");
+        }
+    }
+
+    #[test]
+    fn judge_no_cache_flag_parses() {
+        let cli = Cli::try_parse_from(["scribe", "judge", "--gadget", "g.toml", "--no-cache"])
+            .expect("should parse");
+        if let Commands::Judge(args) = cli.command {
+            assert!(args.no_cache);
+        } else {
+            panic!("expected Judge");
+        }
+        let cli =
+            Cli::try_parse_from(["scribe", "judge", "--gadget", "g.toml"]).expect("should parse");
+        if let Commands::Judge(args) = cli.command {
+            assert!(!args.no_cache, "cache is on by default");
+        } else {
+            panic!("expected Judge");
+        }
     }
 }

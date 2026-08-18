@@ -1,0 +1,14 @@
+[package]
+name = "scribe-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The verdict core: Claim / Oracle / Corpus / Verdict / DiscriminationReport"
+
+# Domain independence is load-bearing (roadmap v2.1, locked decision 1):
+# this crate must never depend on circuit-ir or any other subject-type crate.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+trybuild = "1"

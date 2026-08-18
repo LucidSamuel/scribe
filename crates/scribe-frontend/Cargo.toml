@@ -1,9 +1,9 @@
 [package]
-name = "lean-emit"
+name = "scribe-frontend"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Emit Lean 4 proof scaffolds from circuit IR"
+description = "The Frontend trait: extract a CircuitIR from a circuit ecosystem"
 
 [dependencies]
 circuit-ir = { path = "../circuit-ir" }

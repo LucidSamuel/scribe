@@ -1,0 +1,9 @@
+error[E0451]: fields `outcome` and `discrimination` of struct `Verdict` are private
+ --> tests/ui/verdict_struct_literal.rs:7:9
+  |
+6 |     let _v = Verdict {
+  |              ------- in this type
+7 |         outcome: Outcome::Accept(Evidence::default()),
+  |         ^^^^^^^ private field
+8 |         discrimination: Discrimination::Unmeasured {
+  |         ^^^^^^^^^^^^^^ private field

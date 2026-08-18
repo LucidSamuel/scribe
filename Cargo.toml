@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/scribe-core",
+    "crates/circuit-ir",
+    "crates/scribe-frontend",
+    "crates/frontend-toml",
     "crates/gadget-ir",
     "crates/lean-emit",
     "crates/proof-pilot",

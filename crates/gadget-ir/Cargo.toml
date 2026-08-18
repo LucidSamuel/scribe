@@ -3,8 +3,8 @@ name = "gadget-ir"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Minimal IR for ZK gadget constraint systems"
+description = "DEPRECATED: re-export shim over circuit-ir (use circuit-ir + frontend-toml)"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+circuit-ir = { path = "../circuit-ir" }
 toml = "0.8"

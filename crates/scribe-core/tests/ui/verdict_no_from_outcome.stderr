@@ -1,0 +1,7 @@
+error[E0277]: the trait bound `Verdict: From<Outcome>` is not satisfied
+ --> tests/ui/verdict_no_from_outcome.rs:6:60
+  |
+6 |     let _v: Verdict = Outcome::Accept(Evidence::default()).into();
+  |                                                            ^^^^ the trait `From<Outcome>` is not implemented for `Verdict`
+  |
+  = note: required for `Outcome` to implement `Into<Verdict>`
