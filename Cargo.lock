@@ -493,6 +493,8 @@ dependencies = [
  "halva-bridge",
  "lean-emit",
  "proof-pilot",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
