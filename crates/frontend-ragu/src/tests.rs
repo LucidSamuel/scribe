@@ -174,12 +174,13 @@ fn add_becomes_definition_not_constraint() {
     assert!(lean.contains(&format!("let {} :=", def.name)));
 }
 
-/// Known Phase A follow-up, measured: lean-emit's decomposed mode falls back
-/// to the plain scaffold whenever definitions are present, and extracted ragu
-/// circuits carry definitions whenever a gadget uses `add()` (most do). This
-/// test documents how often that bites: on every definition-bearing circuit.
+/// Phase A follow-up F1, closed: lean-emit's decomposed mode used to fall
+/// back to the plain scaffold whenever definitions were present — which hit
+/// every ragu gadget using `add()` (most do). Each helper lemma now restates
+/// the definitions its constraint transitively reaches as a `let` prefix, so
+/// definition-bearing extracted IR gets a real decomposed scaffold.
 #[test]
-fn decomposed_mode_silently_disables_on_definition_bearing_ragu_ir() {
+fn decomposed_mode_emits_helpers_on_definition_bearing_ragu_ir() {
     let mut with_defs = 0;
     let mut total = 0;
 
@@ -193,13 +194,30 @@ fn decomposed_mode_silently_disables_on_definition_bearing_ragu_ir() {
         total += 1;
         if !ir.definitions.is_empty() {
             with_defs += 1;
-            // decomposed output falls back to the plain scaffold: no helper
-            // lemmas are generated even though the circuit has ≥2 constraints.
+            // decomposed output is a real decomposed scaffold: per-constraint
+            // helper lemmas, distinct from the plain single-theorem scaffold,
+            // with the reached definition restated as a `let` prefix on at
+            // least one helper (the definition is referenced by a constraint,
+            // asserted by add_becomes_definition_not_constraint).
             let decomposed = lean_emit::emit_lean_decomposed(&ir).unwrap();
             let plain = lean_emit::emit_lean(&ir).unwrap();
-            assert_eq!(
+            assert_ne!(
                 decomposed, plain,
-                "decomposed mode should fall back on definitions (A follow-up)"
+                "decomposed mode must not fall back on definitions (F1 closed)"
+            );
+            assert!(
+                decomposed.contains("lemma") && decomposed.contains("_extract_"),
+                "decomposed scaffold lacks helper lemmas for {}",
+                ir.name
+            );
+            let def_let = format!("let {} :=", ir.definitions[0].name);
+            // helper lemmas live between the doc header and the main theorem
+            // (`\ntheorem ` only matches the real declaration line)
+            let helpers = &decomposed[..decomposed.find("\ntheorem ").unwrap()];
+            assert!(
+                helpers.contains(&def_let),
+                "no helper lemma restates `{def_let}` for {}",
+                ir.name
             );
         }
     }

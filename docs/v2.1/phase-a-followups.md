@@ -38,7 +38,24 @@ alarming-but-expected C1 failure.
 
 ## F1 — Decomposed mode silently disables itself on circuits with definitions
 
-**Status:** open. Deferred until Phase B measures how often it bites.
+**Status: CLOSED 2026-08-21** (option 1, as preferred below). The
+definitions guard is gone from `emit_lean_decomposed`'s entry condition; each
+per-constraint helper lemma now opens with a `let` prefix restating exactly
+the definitions its constraint reaches **transitively** (definition terms may
+reference earlier definitions' ids — the chain is followed), in dependency
+order, then the constraint antecedent — the same let-then-named-arrow shape
+the main theorem kernel-validated in Phase A. A helper whose constraint
+touches no definitions gets no prefix at all, so definition-free circuits
+emit byte-identically to before (asserted against the committed
+frontend-toml snapshots). The main theorem keeps its full `let` chain
+unchanged; its proof skeleton gains an `intro <defs> <h_labels>` line so the
+helper applications still elaborate. Guards: unit tests in `lean-emit`
+(exact transitive prefixes, no-prefix case, byte-identity, plus an ignored
+`lake env lean` elaboration check — sorry warnings only, no errors) and the
+inverted frontend-ragu regression test
+`decomposed_mode_emits_helpers_on_definition_bearing_ragu_ir`.
+
+Original finding, kept for context:
 **Where:** `crates/lean-emit/src/lib.rs`, `emit_lean_decomposed` (the
 definitions guard in its entry condition).
 
