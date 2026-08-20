@@ -354,10 +354,11 @@ terms = [{ coeff = "1", vars = [1, 1] }, { coeff = "-1", vars = [1] }]
 
 const DEMO_SCAFFOLD_SNIPPET: &str = r#"-- Generated Lean 4 scaffold (lean-emit → sorry stub)
 theorem range_check_8bit_sound
-    (x : ZMod p) (bits : Fin 8 → ZMod p)
+    (x b0 b1 b2 b3 b4 b5 b6 b7 : ZMod p)
     (hp : p > 256)
-    (h_bit : ∀ i : Fin 8, bits i * (bits i - 1) = 0)
-    (h_decomp : (∑ i : Fin 8, bits i * (2 : ZMod p) ^ (i : ℕ)) = x) :
+    (h_bit_0 : b0 * b0 - b0 = 0)
+    -- ... h_bit_1 through h_bit_7, one per wire
+    (h_decomposition : b0 + 2 * b1 + 4 * b2 + ⋯ + 128 * b7 - x = 0) :
     ZMod.val x < 256 := by
   sorry  -- ← proof-pilot will fill this in
 

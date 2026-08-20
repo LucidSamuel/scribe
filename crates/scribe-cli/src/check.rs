@@ -295,8 +295,8 @@ fn elaborate_scaffold(ir: &CircuitIR, lake_dir: &str) -> Result<(), String> {
 
 /// Render what was actually audited at record time. Facts about runs, not
 /// scans: `axioms_ok`/`uses_ok` come from kernel-checked probes, and
-/// `artifact_audits` lists the commands the artifact itself executed during
-/// its green build.
+/// `artifact_audits` lists the commands the artifact itself executed on the
+/// bound theorem during its green build.
 fn render_recorded_audits(audits: &cache::AuditReport) {
     let mut ran: Vec<String> = Vec::new();
     if audits.axioms_ok {
@@ -320,14 +320,14 @@ fn render_recorded_audits(audits: &cache::AuditReport) {
         step(
             '–',
             "artifact audits",
-            "artifact declares no #audit_* commands of its own",
+            "artifact declares no #audit_* commands on the bound theorem",
         );
     } else {
         step(
             '✓',
             "artifact audits",
             &format!(
-                "{} executed during the artifact's green build",
+                "{} on the bound theorem, executed during the artifact's green build",
                 audits.artifact_audits.join(", ")
             ),
         );
@@ -436,7 +436,10 @@ pub(crate) fn bind_and_audit(
     Ok(cache::AuditReport {
         axioms_ok: true, // the bind probe just gated on it
         uses_ok,
-        artifact_audits: audit_gates_in(&std::fs::read_to_string(artifact).unwrap_or_default()),
+        artifact_audits: audit_gates_in(
+            &std::fs::read_to_string(artifact).unwrap_or_default(),
+            &name,
+        ),
     })
 }
 
@@ -549,14 +552,24 @@ fn strip_audit_gates(lean: &str) -> String {
         .join("\n")
 }
 
-/// Which audit commands a Lean artifact executes: line-anchored, so a command
-/// buried in prose or a line comment does not count. Callers only invoke this
-/// on files that lake-built green, which is what makes "declares" mean "ran
-/// and passed".
-fn audit_gates_in(text: &str) -> Vec<String> {
+/// Which audit commands a Lean artifact executes **on the named declaration**:
+/// line-anchored, so a command buried in prose or a line comment does not
+/// count, and name-filtered, so a directive gating some *other* theorem in a
+/// multi-theorem file (e.g. a bridge's renamed original) is not credited to
+/// the bound one. Every `#audit_*` command takes the declaration name as its
+/// first argument. Callers only invoke this on files that lake-built green,
+/// which is what makes "declares" mean "ran and passed".
+fn audit_gates_in(text: &str, name: &str) -> Vec<String> {
     AUDIT_COMMANDS
         .into_iter()
-        .filter(|cmd| text.lines().any(|l| l.trim_start().starts_with(cmd)))
+        .filter(|cmd| {
+            text.lines().any(|l| {
+                l.trim_start()
+                    .strip_prefix(cmd)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .is_some_and(|first| first == name)
+            })
+        })
         .map(str::to_string)
         .collect()
 }
@@ -667,16 +680,23 @@ mod tests {
     }
 
     #[test]
-    fn audit_gates_in_is_line_anchored() {
+    fn audit_gates_in_is_line_anchored_and_name_filtered() {
         let text = "theorem t : True := trivial\n#audit_axioms t\n  #audit_falsifiable t (p := 5)";
         assert_eq!(
-            audit_gates_in(text),
+            audit_gates_in(text, "t"),
             vec!["#audit_axioms", "#audit_falsifiable"]
         );
-        assert!(audit_gates_in("no gates here").is_empty());
+        assert!(audit_gates_in("no gates here", "t").is_empty());
         // prose or comments mentioning a command are not a command
-        assert!(audit_gates_in("-- remember to add #audit_axioms t").is_empty());
-        assert!(audit_gates_in("/- #audit_uses would go here -/").is_empty());
+        assert!(audit_gates_in("-- remember to add #audit_axioms t", "t").is_empty());
+        assert!(audit_gates_in("/- #audit_uses would go here -/", "t").is_empty());
+        // a directive gating a DIFFERENT declaration in the same file (the
+        // multi-theorem bridge files) is not credited to the bound one
+        let two = "#audit_axioms t_indexed\n#audit_uses t\n";
+        assert_eq!(audit_gates_in(two, "t"), vec!["#audit_uses"]);
+        assert_eq!(audit_gates_in(two, "t_indexed"), vec!["#audit_axioms"]);
+        // prefix names do not match by accident
+        assert!(audit_gates_in("#audit_axioms tt\n", "t").is_empty());
     }
 
     #[test]

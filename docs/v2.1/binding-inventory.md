@@ -1,5 +1,53 @@
 # Binding inventory — do our own proofs prove our own statements?
 
+> **Status 2026-08-21: remediated — 5/5 bind.** The two bridge theorems
+> described in the remediation section below now exist and are kernel-checked;
+> the finding text underneath is kept intact as the record of why the probe
+> exists and what it caught.
+
+| gadget | committed proof | binds? | fingerprint |
+|---|---|---|---|
+| range-check | `RangeCheck.lean` | ✓ | `495d5ad8b7d2…` |
+| conditional-select | `ConditionalSelect.lean` | ✓ | `2c17ffecb8d1…` |
+| poseidon-sbox | `PoseidonSbox.lean` | ✓ | `a814c13d88d3…` |
+| nonzero-check | `NonzeroCheck.lean` | ✓ | `a03c1cff39b5…` |
+| edwards-addition | `EdwardsAddition.lean` | ✓ | `737c4bf784e0…` |
+
+## Remediation (done 2026-08-21)
+
+Both fixes are **bridge theorems** added to the committed files — the probe and
+`soundness_statement` were not touched, and the original human-shaped theorems
+remain, renamed, with their proofs and audit gates intact. In each file the
+name the probe binds to (`<gadget>_sound`) now carries the exact IR-shaped
+statement, proven *from* the original theorem — the previously-missing
+equivalence argument, kernel-checked.
+
+* **ConditionalSelect.lean** — original theorem renamed to
+  `conditional_select_sound_factored`; the bridge `conditional_select_sound`
+  states the flat IR constraints (`b * b - b = 0`,
+  `b * x + y - b * y - z = 0`) and applies the factored theorem, discharging
+  each hypothesis conversion with `linear_combination` (the two ring
+  equalities the 2026-08-18 run found asserted-by-resemblance).
+* **RangeCheck.lean** — original theorem renamed to
+  `range_check_8bit_sound_indexed`; the bridge `range_check_8bit_sound` states
+  the nine flat wires, eight individual boolean constraints, and the flat
+  weighted sum, then instantiates the indexed theorem with
+  `bits := ![b0, …, b7]`. The per-bit obligations reduce by `fin_cases` +
+  `linear_combination h_bit_i`; the `Finset.sum` obligation unfolds via
+  `Fin.sum_univ_succ` (+ `Matrix.cons_val_*`, `pow_succ`) to the flat sum and
+  closes by `linear_combination h_decomposition`. This is the genuine
+  indexing/sum-unfolding lemma the finding called for.
+
+Both bridges pass `#audit_axioms` (propext / Classical.choice / Quot.sound
+only), `#audit_uses` (every flat constraint hypothesis is load-bearing), and
+carry their own C2/C3 probes on the IR shape. `scribe check --record` now
+exits 0 (SOUND) for all five gadgets; the three previously-binding gadgets
+re-recorded at unchanged fingerprints.
+
+---
+
+## The original finding (2026-08-18, kept verbatim)
+
 2026-08-18, run with `scribe check --record` (the kernel-checked binding probe
 from Phase D4) across every IR-backed gadget in `examples/` and its committed
 proof in `lean/ZkGadgets/`. Re-run 2026-08-20 under the rustc 1.97.1 /
