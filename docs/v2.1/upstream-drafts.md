@@ -12,8 +12,9 @@ has moved fast since the fc61822c pin: TalDerei posted an architecture proposal
 (2026-08-17) splitting a `ragu_backend` trait (Arkworks-`VariableBaseMSM`-style,
 reference impl + overridable accelerated impl) from `ragu_pcd` orchestration,
 plus a five-item implementation checklist — item 3 is a differential equivalence
-harness, item 4 is "add acceleration one override per PR." Four stacked PRs
-implement it: #836 (placeholder crates, **merged** 2026-08-17), #839 (backend
+harness, item 4 is "add acceleration one override per PR." One merged bootstrap
+PR plus four open stacked PRs implement it: #836 (placeholder crates, **merged**
+2026-08-17), #839 (backend
 interfaces, open), #840 (route ops through backends, open), #841 (**equivalence
 test harness**, open — proptest-based three-way MSM/sparse-poly/registry/digest
 comparison), and #842 (**zakura-pasta-curves assembly MSM override**, open,
@@ -45,7 +46,11 @@ and PR #841 independently implements the general shape of recommended fix 1
 equivalence at 255 terms, which covers window bands `c ∈ {1,3,4,5,6}` and
 never selects `c ≥ 7` — while PR #842's accelerated backend is justified by
 benchmarks at 2^13-point MSMs (band 10: 8,192 falls in `[8104, 22027)`) and the end-to-end digest
-tests inherit the sparse-commit ceiling (empirically n = 5,507, band 9). So
+tests inherit the `ProductionRank` ceiling (`n ≤ 2^13 = 8192`, so at most
+band 10; the fleet's cached trivial proof measured n = 5,507, band 9, but
+#841's randomized dummy circuits have not been re-instrumented, so only the
+rank ceiling is proven for the PR branch — which still leaves `c ≥ 11`
+unreachable). So
 the blind spot the escaped mutant demonstrates is now about to be inherited by
 the acceptance oracle that will gate assembly-level MSM rewrites. The comment
 is more timely than when the measurement was made, and I rewrote it around
@@ -127,8 +132,8 @@ public, a concrete link can replace it.
 > thresholds — within the 255-term cap the two coincide only by accident
 > (4 and 32 are thresholds *and* powers of two; 55 and 149 are thresholds
 > only), and above the cap they diverge entirely. Meanwhile the end-to-end
-> digest comparison runs at `ProductionRank`
-> and inherits the sparse-commit ceiling above (band 9 at best), and #842's
+> digest comparison runs at `ProductionRank`, whose `n ≤ 2^13 = 8192` caps it
+> at band 10 (the `c ≥ 11` bands stay unreachable regardless), and #842's
 > override is motivated by benchmarks at 2^13-point MSMs — sizes the direct
 > equivalence tests never generate. Net effect: an accelerated MSM whose
 > defect lives in a wide-window path would pass the harness and be accepted.
@@ -215,10 +220,14 @@ C·D = 0) still intended now that d-wires are constrained?`
 >   satisfying assignments. But any circuit whose soundness *depends* on
 >   `C·D = 0` or on constrained d-wires can't have a faithful proof at all,
 >   because the load-bearing constraint doesn't exist in the model — and
->   after #612 (constrain d-wire in stage masks), #620 (d-wire alloc-pairing
->   regression), and #655 (donated d-wires in the standard allocator),
->   d-wires are load-bearing in exactly that sense.
-> - **Completeness** theorems are proven with witnesses that never assign D.
+>   after #612 (constrain d-wire in stage masks), #606 (paired d-wire
+>   allocation), and #655 (donated d-wires in the standard allocator),
+>   d-wires are load-bearing in exactly that sense. (#620 proposed a
+>   d-wire alloc-pairing regression test but was closed unmerged, its
+>   author noting the proptests already cover it.)
+> - **Completeness** theorems are proven over the shim's model, which has no
+>   production D slot at all — `assign_extra` mints a separate, unconstrained
+>   fresh witness instead of the gate's fourth wire.
 >   "The honest prover satisfies the circuit" is established for the
 >   pre-redesign circuit shape, not the deployed one — the real completeness
 >   claim presumably still holds (default-zero D plus redeem-only-when-C=0),
@@ -259,9 +268,16 @@ C·D = 0) still intended now that d-wires are constrained?`
   copy (`crates/oracle-differential/src/vendored_msm.rs`): 15 entries,
   `[4, 4, 32, 55, 149, 404, 1097, 2981, 8104, 22027, 59875, 162755, 442414,
   1202605, 3269018]`; band 16 begins at `n = 3,269,018`.
-- **Lower-confidence upstream facts — re-check before posting** (read from
-  live GitHub on 2026-08-21, not reproducible from local sources): the PR
-  numbers #836/#839–#842 and #612/#620/#655, the #841 crate paths
-  (`ragu_acceleration`, `ragu_testing` — unreconciled with the
-  `ragu_backend` naming in the architecture comment), and the #842
-  curve-crate name ("zakura-pasta-curves" may be garbled).
+- **Second fact-check pass (2026-08-21, independent review) confirmed:**
+  current `main` is still `02d1b151`; #839–#842 remain open;
+  `MAX_MSM_TERMS = 255` and the power-of-two-biased strategy are accurate;
+  `zakura-pasta-curves` is the correct crate name; #660 is open and dormant.
+  Two corrections it produced, now applied above: PR #620 was **closed
+  unmerged** (its author said proptests already covered it) — the paired
+  d-wire allocation landed via **#606**, which Draft 2 now cites; and the
+  end-to-end ceiling claim is stated as the proven `ProductionRank` bound
+  (n ≤ 8192, at most band 10) rather than the fleet-measured band 9, since
+  #841's randomized dummy circuits have not been re-instrumented.
+- **Still lower-confidence — re-check before posting**: PR numbers #612 and
+  #655, and the #841 crate paths (`ragu_acceleration`, `ragu_testing` —
+  unreconciled with the `ragu_backend` naming in the architecture comment).
