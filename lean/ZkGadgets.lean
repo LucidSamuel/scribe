@@ -8,3 +8,5 @@ import ZkGadgets.EdwardsAddition
 import ZkGadgets.HalvaRangeCheck
 import ZkGadgets.HalvaFibonacci
 import ZkGadgets.HalvaBinaryNumber
+import ZkGadgets.RaguBoolean
+import ZkGadgets.Corpus

@@ -1,0 +1,17 @@
+[package]
+name = "oracle-lean"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lean-kernel Oracle over circuit claims (Phase B)"
+
+[dependencies]
+scribe-core = { path = "../scribe-core" }
+circuit-ir = { path = "../circuit-ir" }
+lean-emit = { path = "../lean-emit" }
+proof-pilot = { path = "../proof-pilot" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+[dev-dependencies]

@@ -33,8 +33,14 @@ golf/
 NOTES.md
 
 # zkGolf corpus: vendored external repos + harvested submissions (regenerate
-# with `git clone` per docs/clean-playbook.md and `scripts/harvest.sh`)
-corpus/
+# with `git clone` per docs/clean-playbook.md and `scripts/harvest.sh`).
+# Anchored to the specific vendored subdirs: /corpus/circuits and /corpus/msm
+# are versioned first-class corpora (roadmap v2.1, locked decision 5), and a
+# bare `corpus/` also swallowed lean/ZkGadgets/Corpus on case-insensitive
+# filesystems.
+/corpus/clean/
+/corpus/submissions/
+/corpus/zk-golf-challenges/
 
 # MCP config (local dev)
 .mcp.json

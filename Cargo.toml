@@ -5,6 +5,8 @@ members = [
     "crates/circuit-ir",
     "crates/scribe-frontend",
     "crates/frontend-toml",
+    "crates/frontend-ragu",
+    "crates/oracle-lean",
     "crates/oracle-differential",
     "crates/gadget-ir",
     "crates/lean-emit",

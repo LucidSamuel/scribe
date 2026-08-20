@@ -1,0 +1,27 @@
+# frontend-ragu — structure-only ragu Driver that extracts CircuitIR (Phase B).
+#
+# The ragu dependency is pinned by revision (see RAGU_REV in src/lib.rs, which a
+# test asserts matches this manifest). An extractor validated against an
+# unrecorded revision is not reproducible; do not float this to a branch.
+[package]
+name = "frontend-ragu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Frontend for ragu circuits via a structure-only Driver (Phase B)"
+
+[dependencies]
+circuit-ir = { path = "../circuit-ir" }
+scribe-frontend = { path = "../scribe-frontend" }
+num-bigint = "0.4"
+
+ragu_core = { git = "https://github.com/tachyon-zcash/ragu.git", rev = "fc61822cf8c248d36b950c89817bf170d533a7f3" }
+ragu_arithmetic = { git = "https://github.com/tachyon-zcash/ragu.git", rev = "fc61822cf8c248d36b950c89817bf170d533a7f3" }
+ragu_circuits = { git = "https://github.com/tachyon-zcash/ragu.git", rev = "fc61822cf8c248d36b950c89817bf170d533a7f3", features = ["test-utils"] }
+ragu_primitives = { git = "https://github.com/tachyon-zcash/ragu.git", rev = "fc61822cf8c248d36b950c89817bf170d533a7f3" }
+ragu_pasta = { git = "https://github.com/tachyon-zcash/ragu.git", rev = "fc61822cf8c248d36b950c89817bf170d533a7f3" }
+
+[dev-dependencies]
+lean-emit = { path = "../lean-emit" }
+jsonschema = { version = "0.26", default-features = false }
+serde_json = "1"

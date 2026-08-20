@@ -1,0 +1,190 @@
+{
+  "ir_version": "1",
+  "name": "ragu-boolean",
+  "modulus": "28948022309329048855892746252171976963363056481941560715954676764349967630337",
+  "provenance": {
+    "frontend": "frontend-ragu",
+    "frontend_version": "0.1.0",
+    "source": "frontend-ragu::circuits::BooleanBit (ragu_primitives::Boolean::alloc)",
+    "source_rev": "fc61822cf8c248d36b950c89817bf170d533a7f3"
+  },
+  "public": [
+    {
+      "id": 8,
+      "name": "out0"
+    }
+  ],
+  "private": [
+    {
+      "id": 0,
+      "name": "one"
+    },
+    {
+      "id": 1,
+      "name": "w1"
+    },
+    {
+      "id": 2,
+      "name": "w2"
+    },
+    {
+      "id": 3,
+      "name": "w3"
+    },
+    {
+      "id": 4,
+      "name": "w4"
+    },
+    {
+      "id": 5,
+      "name": "w5"
+    },
+    {
+      "id": 6,
+      "name": "w6"
+    },
+    {
+      "id": 7,
+      "name": "w7"
+    }
+  ],
+  "definitions": [],
+  "constraints": [
+    {
+      "label": "g0_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            1,
+            2
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            3
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "g0_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            3,
+            0
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "g1_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            4,
+            5
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            6
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "g1_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            6,
+            7
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "lc0",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            6
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "lc1",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            0
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            4
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            5
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "out0_bind",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            4
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            8
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "one_is_1",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            0
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": []
+        }
+      ],
+      "origin": null
+    }
+  ],
+  "hypotheses": [],
+  "soundness_spec": "out0 = 0 ∨ out0 = 1"
+}

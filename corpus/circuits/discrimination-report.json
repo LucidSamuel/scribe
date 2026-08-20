@@ -1,0 +1,14 @@
+{
+  "generated": "unix:1787053756",
+  "oracle": "LeanOracle over claude-cli (claude-sonnet-5) (prove-then-refute)",
+  "prove_iters": 3,
+  "refute_iters": 6,
+  "report": {
+    "corpus_version": "circuits-corpus-v1",
+    "negatives_caught": 5,
+    "negatives_total": 5,
+    "escaped": [],
+    "positives_accepted": 3,
+    "positives_total": 3
+  }
+}

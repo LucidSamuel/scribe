@@ -1,0 +1,72 @@
+{
+  "corpus_version": "circuits-corpus-v1",
+  "validated": "2026-08-18",
+  "oracle": "LeanOracle over claude-cli (claude-sonnet-5), prove_iters 3 / refute_iters 6",
+  "note": "Per-instance record behind discrimination-report.json. Iteration counts are as reported by the 2026-08-18 validation run; artifact hashes are over the committed files, which the default lake build re-checks via ZkGadgets.Corpus \u2014 if an artifact drifts, the build goes red rather than the report staying green.",
+  "instances": [
+    {
+      "id": "neg-underconstrained-range",
+      "kind": "negative",
+      "outcome": "rejected: kernel-checked refutation",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Refuterange_check_2bit.lean",
+      "sha256": "58bacc88875b22f482bf29f2a6529e71941e7f90c64028e50aa5fd97998c4446"
+    },
+    {
+      "id": "neg-vacuous-constraint",
+      "kind": "negative",
+      "outcome": "rejected: kernel-checked refutation",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Refutezero_check.lean",
+      "sha256": "6ebc1af6643c447157a5a7673da087a0fbce572f1f360bb1079039cf37653115"
+    },
+    {
+      "id": "neg-is-zero-missing-constraint",
+      "kind": "negative",
+      "outcome": "rejected: kernel-checked refutation",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Refutezero_indicator.lean",
+      "sha256": "74c4775eb5101bb9439a62ef9aaa998b224a6a298dab86ef89b0e3560d63d645"
+    },
+    {
+      "id": "neg-swap-unconstrained-output",
+      "kind": "negative",
+      "outcome": "rejected: kernel-checked refutation",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Refuteswap_pair.lean",
+      "sha256": "8c111a8111f55990259cac81ea06919e1059c858dad5698a9c534fa81a1716b1"
+    },
+    {
+      "id": "neg-wrong-inverse-constraint",
+      "kind": "negative",
+      "outcome": "rejected: kernel-checked refutation",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Refuteinverse_gate.lean",
+      "sha256": "6befb6488f80a7e65cdce12614854eb77a6bc6f91d9eb0708223bc22ad8cf11d"
+    },
+    {
+      "id": "pos-ragu-boolean",
+      "kind": "positive",
+      "outcome": "accepted: kernel-checked proof",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Proveragu_boolean.lean",
+      "sha256": "783bf582c3fcfeac6c564a001c7224a21be27a2c3c4de0a9f8d7ae46050b0d9d"
+    },
+    {
+      "id": "pos-boolean-check",
+      "kind": "positive",
+      "outcome": "accepted: kernel-checked proof",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Proveboolean_check.lean",
+      "sha256": "7cfdc042b71f6ef986fcf886c856c07e88c5659364a3c0ad70c71cb30272ec39"
+    },
+    {
+      "id": "pos-add-gate",
+      "kind": "positive",
+      "outcome": "accepted: kernel-checked proof",
+      "iterations": 1,
+      "artifact": "lean/ZkGadgets/Corpus/Proveadd_gate.lean",
+      "sha256": "43d83a01cd45f39180abe8a98e79d2aa075815f0811c0374cab0c6fea7e0c0d7"
+    }
+  ]
+}
