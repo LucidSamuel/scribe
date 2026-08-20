@@ -167,7 +167,9 @@ impl GolfState {
     }
 
     fn solution_dir(&self) -> PathBuf {
-        Path::new(&self.project).join("Solution").join(&self.instance)
+        Path::new(&self.project)
+            .join("Solution")
+            .join(&self.instance)
     }
 
     fn instance_dir(&self) -> PathBuf {
@@ -183,8 +185,12 @@ fn state_dir(slug: &str) -> PathBuf {
 
 fn load_state(slug: &str) -> Result<GolfState, String> {
     let path = state_dir(slug).join("state.json");
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("no state for '{slug}' ({}): run `scribe golf init {slug}` first", e))?;
+    let text = fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "no state for '{slug}' ({}): run `scribe golf init {slug}` first",
+            e
+        )
+    })?;
     serde_json::from_str(&text).map_err(|e| format!("corrupt {}: {e}", path.display()))
 }
 
@@ -230,7 +236,9 @@ fn cmd_init(slug: &str, project: Option<&str>) -> i32 {
             return 2;
         }
     };
-    let config_path = project_path.join("configs").join(format!("{instance}.json"));
+    let config_path = project_path
+        .join("configs")
+        .join(format!("{instance}.json"));
     let config: serde_json::Value = match fs::read_to_string(&config_path)
         .map_err(|e| e.to_string())
         .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
@@ -254,7 +262,10 @@ fn cmd_init(slug: &str, project: Option<&str>) -> i32 {
     };
     let theorems = str_list("theorem_names");
     if theorems.is_empty() {
-        eprintln!("[scribe golf] {} has no theorem_names", config_path.display());
+        eprintln!(
+            "[scribe golf] {} has no theorem_names",
+            config_path.display()
+        );
         return 2;
     }
     let namespace = theorems[0]
@@ -342,7 +353,11 @@ fn scan_obligations(state: &GolfState) -> Vec<Obligation> {
                     break;
                 }
             }
-            Obligation { name, file, pending }
+            Obligation {
+                name,
+                file,
+                pending,
+            }
         })
         .collect()
 }
@@ -389,9 +404,22 @@ fn decl_body(text: &str, name: &str) -> Option<String> {
             let first = l.split_whitespace().next().unwrap_or("");
             if matches!(
                 first,
-                "theorem" | "def" | "instance" | "lemma" | "end" | "section" | "namespace"
-                    | "private" | "protected" | "attribute" | "set_option" | "open" | "import"
-                    | "@[reducible]" | "structure" | "abbrev"
+                "theorem"
+                    | "def"
+                    | "instance"
+                    | "lemma"
+                    | "end"
+                    | "section"
+                    | "namespace"
+                    | "private"
+                    | "protected"
+                    | "attribute"
+                    | "set_option"
+                    | "open"
+                    | "import"
+                    | "@[reducible]"
+                    | "structure"
+                    | "abbrev"
             ) {
                 end = i;
                 break;
@@ -550,7 +578,10 @@ fn cmd_status(slug: &str) -> i32 {
         }
     };
     render_board(&state, None);
-    let pending = scan_obligations(&state).iter().filter(|o| o.pending).count();
+    let pending = scan_obligations(&state)
+        .iter()
+        .filter(|o| o.pending)
+        .count();
     if pending == 0 {
         println!("STATUS: {slug} all-proven");
     } else {
@@ -641,7 +672,10 @@ fn cmd_prove(
     let mut journals_for_learning: Vec<(String, SessionJournal)> = Vec::new();
     for ob in &targets {
         let Some(file) = &ob.file else {
-            eprintln!("[scribe golf] {}: theorem not found in any solution file", ob.name);
+            eprintln!(
+                "[scribe golf] {}: theorem not found in any solution file",
+                ob.name
+            );
             failed.push(ob.name.clone());
             continue;
         };
@@ -706,7 +740,10 @@ fn cmd_prove(
                     journals_for_learning.push((ob.name.clone(), journal));
                 }
             }
-            SessionResult::Exhausted { iterations, last_error } => {
+            SessionResult::Exhausted {
+                iterations,
+                last_error,
+            } => {
                 let snippet: String = last_error.lines().take(4).collect::<Vec<_>>().join(" | ");
                 eprintln!(
                     "[scribe golf] {RED}✗ {} exhausted{RESET} ({iterations} iter, {elapsed}s): {snippet}",
@@ -723,7 +760,10 @@ fn cmd_prove(
     }
 
     if !no_learn && !journals_for_learning.is_empty() {
-        eprintln!("[scribe golf] distilling lessons from {} attempt(s)…", journals_for_learning.len());
+        eprintln!(
+            "[scribe golf] distilling lessons from {} attempt(s)…",
+            journals_for_learning.len()
+        );
         match distill_lessons(&journals_for_learning, backend.as_ref(), 30) {
             Ok(n) => eprintln!("[scribe golf] lessons file updated ({n} rules) → {LESSONS_FILE}"),
             Err(e) => eprintln!("[scribe golf] warning: lesson distillation failed: {e}"),
@@ -827,7 +867,11 @@ fn playbook_section(obligation: &str) -> Option<String> {
             out.push_str(&sec);
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// The text from a heading line (prefix match) to the next heading of the same
@@ -945,7 +989,10 @@ fn distill_lessons(
         for it in &journal.iterations {
             let failed = !it.patch_applied || !it.build_errors.trim().is_empty();
             let label = if failed { "FAILED" } else { "ACCEPTED" };
-            evidence.push_str(&format!("\n-- iteration {} [{label}] response excerpt:\n", it.index));
+            evidence.push_str(&format!(
+                "\n-- iteration {} [{label}] response excerpt:\n",
+                it.index
+            ));
             evidence.push_str(truncate_chars(&it.llm_response, 1_500));
             if failed {
                 let errs: Vec<&str> = it
@@ -1039,7 +1086,10 @@ fn cmd_learn(slug: &str, backend_name: &str, model: Option<String>, max_lessons:
         eprintln!("[scribe golf] no eventful attempts to learn from");
         return 0;
     }
-    eprintln!("[scribe golf] distilling lessons from {} attempt(s)…", journals.len());
+    eprintln!(
+        "[scribe golf] distilling lessons from {} attempt(s)…",
+        journals.len()
+    );
     match distill_lessons(&journals, backend.as_ref(), max_lessons) {
         Ok(n) => {
             println!("LEARNED: {n} rules → {LESSONS_FILE}");
@@ -1256,7 +1306,10 @@ mod tests {
             "# header\nassert-bytes:\n  type: public\n  instance: AssertBytes\nother:\n  instance: Other\n",
         )
         .unwrap();
-        assert_eq!(slug_to_instance(&dir, "assert-bytes").unwrap(), "AssertBytes");
+        assert_eq!(
+            slug_to_instance(&dir, "assert-bytes").unwrap(),
+            "AssertBytes"
+        );
         assert_eq!(slug_to_instance(&dir, "other").unwrap(), "Other");
         assert!(slug_to_instance(&dir, "nope").is_err());
         fs::remove_dir_all(&dir).ok();
@@ -1285,7 +1338,8 @@ mod tests {
 
     #[test]
     fn markdown_section_slices_between_headings() {
-        let md = "# T\n## 4. ref\n### soundness\nalpha\n### completeness\nbeta\n## 5. rules\ngamma\n";
+        let md =
+            "# T\n## 4. ref\n### soundness\nalpha\n### completeness\nbeta\n## 5. rules\ngamma\n";
         let s = markdown_section(md, "### soundness").unwrap();
         assert!(s.contains("alpha"));
         assert!(!s.contains("beta"));
@@ -1295,9 +1349,18 @@ mod tests {
 
     #[test]
     fn error_classes_are_stable() {
-        assert_eq!(classify_error("foo.lean:3:1: error: unexpected token 'theorem'"), "syntax");
-        assert_eq!(classify_error("error: Tactic `rewrite` failed: Did not find an occurrence"), "rewrite");
-        assert_eq!(classify_error("error: unsolved goals\n⊢ True"), "unsolved-goals");
+        assert_eq!(
+            classify_error("foo.lean:3:1: error: unexpected token 'theorem'"),
+            "syntax"
+        );
+        assert_eq!(
+            classify_error("error: Tactic `rewrite` failed: Did not find an occurrence"),
+            "rewrite"
+        );
+        assert_eq!(
+            classify_error("error: unsolved goals\n⊢ True"),
+            "unsolved-goals"
+        );
         assert_eq!(classify_error(""), "patch-rejected");
     }
 
