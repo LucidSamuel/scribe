@@ -1,2 +1,5 @@
 [toolchain]
-channel = "1.90.0"
+# 1.97.1: ragu's MSRV is 1.97 (edition 2024), and Phase B's frontend-ragu
+# depends on ragu directly. Bumped from 1.90.0 on 2026-08-18 (workspace-owner
+# decision; see the Phase C cross-phase finding in docs/v2.1/equivalence-notes.md).
+channel = "1.97.1"

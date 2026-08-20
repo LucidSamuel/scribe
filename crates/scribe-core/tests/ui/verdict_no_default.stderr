@@ -1,8 +1,8 @@
-error[E0599]: no function or associated item named `default` found for struct `Verdict` in the current scope
+error[E0599]: no associated function or constant named `default` found for struct `Verdict` in the current scope
  --> tests/ui/verdict_no_default.rs:6:23
   |
 6 |     let _v = Verdict::default();
-  |                       ^^^^^^^ function or associated item not found in `Verdict`
+  |                       ^^^^^^^ associated function or constant not found in `Verdict`
   |
 note: if you're trying to build a new `Verdict`, consider using `Verdict::new` which returns `Verdict`
  --> src/lib.rs
