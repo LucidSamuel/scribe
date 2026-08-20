@@ -1,0 +1,30 @@
+# Phase C (roadmap v2.1): the second live instance of the verdict core.
+#
+# Deliberately does NOT depend on the ragu workspace: ragu pins rustc 1.97
+# (edition 2024) while this workspace pins 1.90.0 in rust-toolchain.toml, so a
+# path/git dependency on ragu_arithmetic cannot build here. The reference MSM
+# is instead vendored verbatim from ragu revision
+# fc61822cf8c248d36b950c89817bf170d533a7f3 (origin/main, the Phase C audit
+# revision) — see src/vendored_msm.rs for provenance and the two documented
+# deltas. The same toolchain wall will hit Phase B the moment frontend-ragu
+# adds a real ragu dependency; reported as a cross-phase finding.
+
+[package]
+name = "oracle-differential"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Differential-equivalence oracle at the MSM boundary (Phase C)"
+
+[dependencies]
+scribe-core = { path = "../scribe-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Same curve family ragu instantiates msm with (Pallas/Vesta). Upstream builds
+# against ebfull/pasta_curves rev 5a84fc0d (a fork adding a "deferred" feature,
+# ff 0.14); the fork's MSRV also exceeds this workspace's 1.90 pin, so we use
+# the crates.io release (ff/group 0.13). The msm algorithm under test is
+# identical: it is generic over `CurveAffine` and touches no fork-specific API.
+pasta_curves = "0.5.1"
+ff = "0.13"
+group = "0.13"

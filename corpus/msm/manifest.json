@@ -1,0 +1,30 @@
+{
+  "version": "msm-corpus-v1",
+  "ragu_revision": "fc61822cf8c248d36b950c89817bf170d533a7f3",
+  "pool_seed": 20260818,
+  "input_sizes": [3, 4, 5, 7, 16, 63, 93, 111, 5507],
+  "positives": [
+    {
+      "id": "msm-positive-shifted-window",
+      "candidate": "shifted-window",
+      "description": "Correct-by-construction metamorphic candidate: the reference windowed algorithm run with a deliberately different window width than bucket_lookup selects (different bucket counts, segment counts, and window boundaries). Any fixed width computes the same sum, so the oracle must accept — and because the code path parameterization differs, acceptance is not a vacuous self-comparison."
+    }
+  ],
+  "negatives": [
+    {
+      "id": "msm-mutant-wide-window-skip-double",
+      "candidate": "mutant-wide-window-skip-double",
+      "description": "One doubling short in the window-combination loop, gated on bucket_lookup selecting c >= 11 — a path only entered for n >= 22027. Demonstrably unreached: no rank <= R<14> can produce an MSM that large (R::num_coeffs caps the commit-side MSM at 2^rank; the only other call site is a ~108-term decomposition MSM), and the largest MSM the fuzz fleet performs is n = 5507 (fuzz_verify_reject trivial-proof build at ProductionRank; see docs/v2.1/equivalence-notes.md). EXPECTED TO ESCAPE validate() under the fleet-shaped input distribution above — that escape is the Phase C finding, committed in discrimination-report.json."
+    },
+    {
+      "id": "msm-mutant-bucket-collision-drop",
+      "candidate": "mutant-bucket-collision-drop",
+      "description": "The Bucket::Affine -> Bucket::Projective transition forgets the point already in the bucket. Wrong whenever any bucket receives two or more points in some window — near-certain for full-width random scalars at any n >= 2, so the oracle must catch it at fleet-reached sizes."
+    },
+    {
+      "id": "msm-mutant-window-shift-drop",
+      "candidate": "mutant-window-shift-drop",
+      "description": "get_at skips the sub-byte right shift, so every window that does not start on a byte boundary reads the wrong scalar bits. Wrong for essentially any input; the oracle must catch it at fleet-reached sizes."
+    }
+  ]
+}
