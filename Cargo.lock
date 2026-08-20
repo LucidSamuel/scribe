@@ -215,6 +215,7 @@ dependencies = [
  "jsonschema",
  "serde",
  "serde_json",
+ "sha2",
  "toml 0.8.23",
 ]
 
@@ -912,6 +913,7 @@ dependencies = [
  "scribe-core",
  "serde",
  "serde_json",
+ "sha2",
  "toml 0.8.23",
 ]
 
@@ -1233,6 +1235,7 @@ dependencies = [
  "halva-bridge",
  "jsonschema",
  "lean-emit",
+ "oracle-lean",
  "proof-pilot",
  "scribe-core",
  "scribe-frontend",
@@ -1254,6 +1257,15 @@ name = "scribe-frontend"
 version = "0.1.0"
 dependencies = [
  "circuit-ir",
+]
+
+[[package]]
+name = "scribe-macros"
+version = "0.1.0"
+dependencies = [
+ "circuit-ir",
+ "frontend-ragu",
+ "ragu_pasta",
 ]
 
 [[package]]
@@ -1988,6 +2000,7 @@ dependencies = [
  "gadget-ir",
  "lean-emit",
  "proof-pilot",
+ "scribe-core",
  "serde",
  "serde_json",
  "toml 0.8.23",

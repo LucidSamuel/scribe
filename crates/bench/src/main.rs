@@ -133,6 +133,11 @@ struct Summary {
     /// Positive-gadget stats, keyed by feedback mode.
     positives: BTreeMap<String, ModeSummary>,
     negatives: NegativeSummary,
+    /// The run's outcomes measured by `scribe_core::validate()` (D5): each
+    /// gadget×mode row becomes a corpus instance, the recorded outcome
+    /// adjudicates it, and `escaped` is exactly the soundness-alarm set the
+    /// exit-2 decision fires on.
+    discrimination: scribe_core::DiscriminationReport,
     /// Harness/runtime errors such as load/emit failures, backend failures, or
     /// Lean/LSP invocation failures. These invalidate the eval run.
     infrastructure_errors: Vec<String>,
@@ -519,7 +524,7 @@ fn main() {
     }
 
     let total_time = total_start.elapsed().as_secs_f64();
-    let summary = summarize(&results, total_time);
+    let summary = summarize(&results, total_time, &manifest.version);
     let has_alarms = !summary.negatives.soundness_alarms.is_empty();
     let has_infra_errors = !summary.infrastructure_errors.is_empty();
 
@@ -574,14 +579,132 @@ fn failed_result(entry: &GadgetEntry, mode: &str, error: &str) -> GadgetResult {
     }
 }
 
-fn summarize(results: &[GadgetResult], total_time_s: f64) -> Summary {
+// ─── The soundness alarm, re-expressed on top of scribe-core (D5) ───────────
+
+/// One finished gadget×mode row, as the subject of a claim scribe-core can
+/// adjudicate after the fact.
+struct RecordedOutcome {
+    proved: u32,
+    n: u32,
+    failed: u32,
+}
+
+/// The claim: "the loop handled this suite entry correctly under this mode."
+struct RunClaim {
+    /// `gadget [mode]` — the id an escape is reported by, byte-identical to
+    /// the strings `soundness_alarms` has always carried.
+    key: String,
+}
+
+impl scribe_core::Claim for RunClaim {
+    type Subject = RecordedOutcome;
+    fn kind(&self) -> &'static str {
+        "bench-suite-run"
+    }
+    fn describe(&self) -> String {
+        format!("recorded proof-loop outcome for {}", self.key)
+    }
+}
+
+/// Adjudicates from the recorded run: any proved sample is an acceptance of
+/// the spec (which for a negative is precisely the escape), a row with no
+/// samples or with every sample failed is `Undetermined` (infrastructure,
+/// not discrimination), anything else is a refusal.
+struct RecordedRunOracle;
+
+impl scribe_core::Oracle<RunClaim> for RecordedRunOracle {
+    fn adjudicate(&self, _claim: &RunClaim, s: &RecordedOutcome) -> scribe_core::Outcome {
+        if s.proved > 0 {
+            scribe_core::Outcome::Accept(scribe_core::Evidence {
+                summary: format!(
+                    "{}/{} samples produced a kernel-accepted proof",
+                    s.proved, s.n
+                ),
+                details: vec![],
+            })
+        } else if s.n == 0 {
+            // `failed_result` rows: the gadget never loaded or emitted, so no
+            // refusal ever happened — counting this as caught would credit the
+            // oracle with discrimination it never performed.
+            scribe_core::Outcome::Undetermined(scribe_core::Reason {
+                summary: "no samples were recorded — nothing was adjudicated".into(),
+            })
+        } else if s.failed == s.n {
+            scribe_core::Outcome::Undetermined(scribe_core::Reason {
+                summary: "every sample failed on infrastructure — nothing was adjudicated".into(),
+            })
+        } else {
+            scribe_core::Outcome::Reject(scribe_core::Diagnostics {
+                summary: "refused within budget".into(),
+                details: vec![],
+            })
+        }
+    }
+}
+
+/// The finished run as a corpus: suite negatives are instances the oracle
+/// must reject, suite positives instances it should accept.
+struct RunCorpus<'a> {
+    version: String,
+    results: &'a [GadgetResult],
+}
+
+impl RunCorpus<'_> {
+    fn of_kind(&self, kind: GadgetKind) -> Vec<scribe_core::Instance<RunClaim>> {
+        self.results
+            .iter()
+            .filter(|r| r.kind == kind)
+            .map(|r| {
+                let key = format!("{} [{}]", r.gadget, r.mode);
+                scribe_core::Instance {
+                    id: key.as_str().into(),
+                    claim: RunClaim { key: key.clone() },
+                    subject: RecordedOutcome {
+                        proved: r.proved,
+                        n: r.n,
+                        failed: r.failed,
+                    },
+                }
+            })
+            .collect()
+    }
+}
+
+impl scribe_core::Corpus<RunClaim> for RunCorpus<'_> {
+    fn negatives(&self) -> Vec<scribe_core::Instance<RunClaim>> {
+        self.of_kind(GadgetKind::Negative)
+    }
+    fn positives(&self) -> Vec<scribe_core::Instance<RunClaim>> {
+        self.of_kind(GadgetKind::Positive)
+    }
+    fn version(&self) -> &str {
+        &self.version
+    }
+}
+
+fn summarize(results: &[GadgetResult], total_time_s: f64, suite_version: &str) -> Summary {
     let mut positives: BTreeMap<String, ModeSummary> = BTreeMap::new();
     let mut neg_gadgets: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     let mut neg_samples = 0u32;
     let mut neg_refused = 0u32;
     let mut neg_failed = 0u32;
-    let mut alarms = Vec::new();
     let mut infrastructure_errors = Vec::new();
+
+    // The alarm set comes out of scribe-core's validate() over the recorded
+    // outcomes, not a hand-rolled loop: an escaped negative IS the alarm, and
+    // the exit-2 decision downstream fires on exactly this list.
+    let discrimination = scribe_core::validate(
+        &RecordedRunOracle,
+        &RunCorpus {
+            version: format!("benchmark-suite-v{suite_version}"),
+            results,
+        },
+    );
+    let alarms: Vec<String> = discrimination
+        .escaped
+        .iter()
+        .map(|id| id.0.clone())
+        .collect();
 
     for r in results {
         if let Some(error) = &r.error {
@@ -605,9 +728,6 @@ fn summarize(results: &[GadgetResult], total_time_s: f64) -> Summary {
                 neg_samples += r.n;
                 neg_failed += r.failed;
                 neg_refused += r.n.saturating_sub(r.proved + r.failed);
-                if r.soundness_alarm {
-                    alarms.push(format!("{} [{}]", r.gadget, r.mode));
-                }
             }
             GadgetKind::Positive => {
                 let mode = positives.entry(r.mode.clone()).or_insert(ModeSummary {
@@ -658,6 +778,7 @@ fn summarize(results: &[GadgetResult], total_time_s: f64) -> Summary {
             failed: neg_failed,
             soundness_alarms: alarms,
         },
+        discrimination,
         infrastructure_errors,
     }
 }
@@ -681,6 +802,27 @@ fn print_summary(summary: &Summary) {
             );
         }
     }
+    let d = &summary.discrimination;
+    eprintln!(
+        "Discrimination ({}): {}/{} negatives caught, {}/{} positives accepted{}",
+        d.corpus_version,
+        d.negatives_caught,
+        d.negatives_total,
+        d.positives_accepted,
+        d.positives_total,
+        if d.escaped.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " — ⚠ ESCAPES: {}",
+                d.escaped
+                    .iter()
+                    .map(|id| id.0.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    );
     let neg = &summary.negatives;
     if neg.samples > 0 {
         eprintln!(
@@ -929,7 +1071,7 @@ mod tests {
             // ...and one that was "proved" once: alarm.
             make("neg-bad", GadgetKind::Negative, "build", 1, 4, 1, true),
         ];
-        let s = summarize(&results, 1.0);
+        let s = summarize(&results, 1.0, "0.2.0");
 
         let build = &s.positives["build"];
         assert_eq!(build.gadgets, 2);
@@ -949,6 +1091,68 @@ mod tests {
         assert_eq!(s.negatives.failed, 0);
         assert_eq!(s.negatives.soundness_alarms, vec!["neg-bad [build]"]);
         assert!(s.infrastructure_errors.is_empty());
+
+        // D5: the alarm list above IS the validate() escape set — same
+        // strings, derived by scribe-core, and the report carries both
+        // directions of the measurement.
+        let d = &s.discrimination;
+        assert_eq!(d.corpus_version, "benchmark-suite-v0.2.0");
+        assert_eq!(
+            d.escaped.iter().map(|id| id.0.as_str()).collect::<Vec<_>>(),
+            vec!["neg-bad [build]"]
+        );
+        assert_eq!((d.negatives_caught, d.negatives_total), (1, 2));
+        // positives "accepted" = proved at least once under that mode
+        assert_eq!((d.positives_accepted, d.positives_total), (3, 3));
+    }
+
+    #[test]
+    fn all_failed_negative_is_undetermined_not_caught_and_not_alarm() {
+        // Infrastructure failure on every sample is not discrimination: the
+        // oracle never adjudicated, so the row is neither caught (no refusal
+        // happened) nor an escape (nothing was accepted). Exit-2 must NOT
+        // fire, and the report must not count it as caught.
+        let r = GadgetResult {
+            gadget: "neg-dead".to_string(),
+            tier: 1,
+            constraints: 1,
+            kind: GadgetKind::Negative,
+            mode: "build".to_string(),
+            n: 3,
+            proved: 0,
+            failed: 3,
+            pass_at: pass_at_table(3, 0),
+            wilson95: wilson95(0, 3),
+            soundness_alarm: false,
+            samples: Vec::new(),
+            error: None,
+        };
+        let s = summarize(&[r], 1.0, "0.2.0");
+        assert!(s.negatives.soundness_alarms.is_empty());
+        assert!(s.discrimination.escaped.is_empty());
+        assert_eq!(s.discrimination.negatives_caught, 0);
+        assert_eq!(s.discrimination.negatives_total, 1);
+    }
+
+    #[test]
+    fn zero_sample_negative_is_undetermined_not_caught() {
+        // A `failed_result` row (gadget never loaded or emitted) records
+        // n = 0, proved = 0, failed = 0. No refusal happened, so it must be
+        // Undetermined — neither counted as caught nor raised as an alarm.
+        let entry = GadgetEntry {
+            file: "suite/neg-never-loaded.toml".to_string(),
+            tier: 1,
+            constraints: 1,
+            description: String::new(),
+            kind: GadgetKind::Negative,
+        };
+        let r = failed_result(&entry, "build", "cannot read gadget file");
+        let s = summarize(&[r], 1.0, "0.2.0");
+        assert!(s.negatives.soundness_alarms.is_empty());
+        assert!(s.discrimination.escaped.is_empty());
+        assert_eq!(s.discrimination.negatives_caught, 0);
+        assert_eq!(s.discrimination.negatives_total, 1);
+        assert_eq!(s.infrastructure_errors.len(), 1);
     }
 
     #[test]
@@ -984,7 +1188,7 @@ mod tests {
             error: None,
         }];
 
-        let s = summarize(&results, 1.0);
+        let s = summarize(&results, 1.0, "0.2.0");
 
         assert_eq!(s.negatives.samples, 2);
         assert_eq!(s.negatives.refused, 1);

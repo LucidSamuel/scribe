@@ -25,6 +25,12 @@ Soundness: out0 = 0 ∨ out0 = 1
 
 variable (p : ℕ) [Fact (Nat.Prime p)]
 
+/- Faithful extraction includes constraints that are correct but not
+load-bearing for this spec (the SYSTEM-gate pair, the spare D wire) — the
+unused-variable lint on them is expected, and their liveness discipline is
+handled by the C1 policy (docs/v2.1/phase-a-followups.md, F2), not by this
+linter. Statement and proof are otherwise untouched oracle output. -/
+set_option linter.unusedVariables false in
 theorem ragu_boolean_sound
     (out0 : ZMod p)
     (one w1 w2 w3 w4 w5 w6 w7 : ZMod p)

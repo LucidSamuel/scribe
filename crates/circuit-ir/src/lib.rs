@@ -145,6 +145,28 @@ impl CircuitIR {
         self.public.iter().chain(self.private.iter())
     }
 
+    /// SHA-256 hex over this circuit's *semantic* content: the canonical JSON
+    /// with `provenance.source_rev` and every `Constraint.origin` cleared.
+    ///
+    /// Those two fields are provenance/diagnostics — they never reach the
+    /// emitted Lean, so two IRs with equal semantic fingerprints yield the
+    /// same theorem statement and the same evidence. This is the single
+    /// canonicalization every fingerprint consumer (the proof cache, corpus
+    /// content fingerprints) must share; do not reimplement it downstream.
+    pub fn semantic_fingerprint(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut canon = self.clone();
+        canon.provenance.source_rev = None;
+        for c in &mut canon.constraints {
+            c.origin = None;
+        }
+        let json = serde_json::to_string(&canon).expect("CircuitIR always serializes");
+        Sha256::digest(json.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
     /// Serialize to the versioned JSON interchange format.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)

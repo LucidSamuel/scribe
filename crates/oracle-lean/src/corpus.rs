@@ -130,6 +130,42 @@ impl CircuitCorpus {
         &self.entries
     }
 
+    /// SHA-256 hex over the corpus's semantic content: the version plus every
+    /// instance's `(id, kind, semantic IR fingerprint)`, sorted by id.
+    ///
+    /// This is what binds a committed [`CommittedValidation`] to the corpus
+    /// it actually measured: adding, removing, re-kinding, or semantically
+    /// editing any instance changes the fingerprint, while diagnostics-only
+    /// churn (constraint origins, provenance revs) does not.
+    pub fn content_fingerprint(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut rows: Vec<String> = self
+            .entries
+            .iter()
+            .map(|(entry, ir)| {
+                format!(
+                    "{}\x00{}\x00{}",
+                    entry.id,
+                    entry.kind,
+                    ir.semantic_fingerprint()
+                )
+            })
+            .collect();
+        rows.sort();
+        let mut hasher = Sha256::new();
+        hasher.update(self.version.as_bytes());
+        hasher.update([0u8]);
+        for row in &rows {
+            hasher.update(row.as_bytes());
+            hasher.update([0u8]);
+        }
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
     fn of_kind(&self, kind: &str) -> Vec<Instance<CircuitClaim>> {
         self.entries
             .iter()
@@ -186,6 +222,13 @@ pub struct CommittedValidation {
     pub oracle: String,
     pub prove_iters: u32,
     pub refute_iters: u32,
+    /// [`CircuitCorpus::content_fingerprint`] of the corpus this run
+    /// measured. A report whose fingerprint does not match the corpus on
+    /// disk is STALE — some instance was never measured — and renderers must
+    /// treat the oracle as unmeasured rather than trusting old numbers.
+    /// `None` only in pre-fingerprint reports, which are equally unverifiable.
+    #[serde(default)]
+    pub corpus_fingerprint: Option<String>,
     pub report: DiscriminationReport,
 }
 

@@ -3,6 +3,7 @@
   "oracle": "LeanOracle over claude-cli (claude-sonnet-5) (prove-then-refute)",
   "prove_iters": 3,
   "refute_iters": 6,
+  "corpus_fingerprint": "872ec5a206e7ea4fbec994ffa0a04379f551cf31a6248910ab64f236419cc540",
   "report": {
     "corpus_version": "circuits-corpus-v1",
     "negatives_caught": 5,

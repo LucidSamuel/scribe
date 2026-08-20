@@ -1,0 +1,20 @@
+# D1 (roadmap v2.1 Phase D): extraction is a `cargo test`.
+#
+# A user's circuit crate adds this and writes `scribe_macros::extract!(...)`;
+# extraction then happens automatically whenever their existing test suite
+# runs — no new Cargo target, no config file, no separate extractor project
+# (the tax that kept the Halva path at three proven circuits).
+
+[package]
+name = "scribe-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "scribe::extract! — ragu circuit extraction as a plain cargo test"
+
+[dependencies]
+frontend-ragu = { path = "../frontend-ragu" }
+
+[dev-dependencies]
+circuit-ir = { path = "../circuit-ir" }
+ragu_pasta = { git = "https://github.com/tachyon-zcash/ragu.git", rev = "fc61822cf8c248d36b950c89817bf170d533a7f3" }

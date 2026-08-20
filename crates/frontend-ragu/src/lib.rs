@@ -54,6 +54,34 @@ pub mod circuits;
 /// stamped into every extracted IR's provenance.
 pub const RAGU_REV: &str = "fc61822cf8c248d36b950c89817bf170d533a7f3";
 
+// ─── Source spans (Phase A follow-up F3) ─────────────────────────────────────
+
+/// The caller's source span, trimmed for diagnostics: cargo's git-checkout
+/// paths are long, so keep the portion from the last `crates/` component when
+/// present (`crates/ragu_primitives/src/boolean.rs`), else the last two path
+/// components.
+fn caller_span(loc: &'static std::panic::Location<'static>) -> Option<circuit_ir::SourceSpan> {
+    let file = loc.file();
+    let trimmed = match file.rfind("crates/") {
+        Some(i) => &file[i..],
+        None => {
+            let mut parts: Vec<&str> = file.rsplitn(3, '/').collect();
+            parts.truncate(2);
+            parts.reverse();
+            return Some(circuit_ir::SourceSpan {
+                file: parts.join("/"),
+                line: loc.line(),
+                label: None,
+            });
+        }
+    };
+    Some(circuit_ir::SourceSpan {
+        file: trimmed.to_string(),
+        line: loc.line(),
+        label: None,
+    })
+}
+
 // ─── Linear-combination recorder ─────────────────────────────────────────────
 
 /// A [`LinearExpression`] that records terms symbolically instead of
@@ -214,7 +242,15 @@ impl<F: PrimeField> Extractor<F> {
         id
     }
 
-    fn push_gate_constraints(&mut self, gate: usize, a: usize, b: usize, c: usize, d: usize) {
+    fn push_gate_constraints(
+        &mut self,
+        gate: usize,
+        a: usize,
+        b: usize,
+        c: usize,
+        d: usize,
+        origin: Option<circuit_ir::SourceSpan>,
+    ) {
         // A·B − C = 0
         self.constraints.push(Constraint {
             label: format!("g{gate}_mul"),
@@ -228,7 +264,7 @@ impl<F: PrimeField> Extractor<F> {
                     vars: vec![c],
                 },
             ],
-            origin: None,
+            origin: origin.clone(),
         });
         // C·D = 0 — the constraint `Driver::mul` hides. Never drop it.
         self.constraints.push(Constraint {
@@ -237,7 +273,7 @@ impl<F: PrimeField> Extractor<F> {
                 coeff: "1".to_string(),
                 vars: vec![c, d],
             }],
-            origin: None,
+            origin,
         });
     }
 
@@ -250,7 +286,7 @@ impl<F: PrimeField> Extractor<F> {
         let a = self.fresh_var();
         let b = self.fresh_var();
         let c = self.fresh_var();
-        self.push_gate_constraints(gate, a, b, c, 0);
+        self.push_gate_constraints(gate, a, b, c, 0, None);
         self.num_gates += 1;
     }
 
@@ -321,16 +357,18 @@ impl<F: PrimeField> DriverTypes for Extractor<F> {
     /// time, so redeeming the token later never changes the constraint set.
     type Extra = usize;
 
+    #[track_caller]
     fn gate(
         &mut self,
         _values: impl Fn() -> ragu_core::Result<(Coeff<F>, Coeff<F>, Coeff<F>)>,
     ) -> ragu_core::Result<(usize, usize, usize, usize)> {
+        let origin = caller_span(std::panic::Location::caller());
         let gate = self.num_gates;
         let a = self.fresh_var();
         let b = self.fresh_var();
         let c = self.fresh_var();
         let d = self.fresh_var();
-        self.push_gate_constraints(gate, a, b, c, d);
+        self.push_gate_constraints(gate, a, b, c, d, origin);
         self.num_gates += 1;
         Ok((a, b, c, d))
     }
@@ -366,15 +404,21 @@ impl<'dr, F: PrimeField> Driver<'dr> for Extractor<F> {
         id
     }
 
+    /// `#[track_caller]`: the immediate caller of `enforce_zero` is gadget
+    /// code (e.g. `ragu_primitives/src/boolean.rs`), so the captured span is
+    /// the source line the constraint came from — what D2's diagnostics cite
+    /// instead of a generated hypothesis name (follow-up F3).
+    #[track_caller]
     fn enforce_zero(
         &mut self,
         lc: impl Fn(RecordedLc<F>) -> RecordedLc<F>,
     ) -> ragu_core::Result<()> {
+        let origin = caller_span(std::panic::Location::caller());
         let terms = lc(RecordedLc::default()).into_terms();
         self.constraints.push(Constraint {
             label: format!("lc{}", self.num_lc_constraints),
             terms,
-            origin: None,
+            origin,
         });
         self.num_lc_constraints += 1;
         Ok(())

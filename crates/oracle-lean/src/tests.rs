@@ -180,6 +180,12 @@ fn committed_report_is_current_and_shows_no_escapes() {
     assert_eq!(report.corpus_version, corpus.version());
     assert_eq!(report.negatives_total, corpus.negatives().len());
     assert_eq!(report.positives_total, corpus.positives().len());
+    assert_eq!(
+        committed.corpus_fingerprint.as_deref(),
+        Some(corpus.content_fingerprint().as_str()),
+        "the committed report does not fingerprint-match the corpus on disk — it is STALE \
+         evidence; re-run the ignored validate_lean_oracle_against_corpus test and re-commit"
+    );
 
     assert_eq!(
         report.negatives_caught, report.negatives_total,
@@ -232,6 +238,7 @@ fn validate_lean_oracle_against_corpus() {
         ),
         prove_iters: oracle.prove_iters,
         refute_iters: oracle.refute_iters,
+        corpus_fingerprint: Some(corpus.content_fingerprint()),
         report: report.clone(),
     };
     committed.save(&report_path()).unwrap();

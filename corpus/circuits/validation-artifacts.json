@@ -50,7 +50,8 @@
       "outcome": "accepted: kernel-checked proof",
       "iterations": 1,
       "artifact": "lean/ZkGadgets/Corpus/Proveragu_boolean.lean",
-      "sha256": "783bf582c3fcfeac6c564a001c7224a21be27a2c3c4de0a9f8d7ae46050b0d9d"
+      "sha256": "40999d6775c6e6052c5c8e69d0a336e25f46ba859df0fb23fe1bad364d5520da",
+      "note": "2026-08-20: scoped `set_option linter.unusedVariables false in` added above the theorem (faithful-extraction hypotheses, see F2); statement and proof untouched."
     },
     {
       "id": "pos-boolean-check",

@@ -17,12 +17,19 @@ use circuit_ir::CircuitIR;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// SHA-256 hex of the canonical IR JSON, `provenance.source_rev` excluded.
+/// SHA-256 hex of the canonical IR JSON, excluding `provenance.source_rev`
+/// and every `Constraint.origin`.
+///
+/// Origins are diagnostic metadata (which source line a constraint came
+/// from), not circuit semantics: they never reach the emitted Lean, so the
+/// theorem, the proof, and the evidence are identical with or without them.
+/// Including them would invalidate every cached verdict whenever a comment
+/// edit shifts line numbers in a gadget file — cache churn with no semantic
+/// change. The spec and the constraint set itself remain fully covered.
 pub fn fingerprint(ir: &CircuitIR) -> String {
-    let mut canon = ir.clone();
-    canon.provenance.source_rev = None;
-    let json = serde_json::to_string(&canon).expect("CircuitIR always serializes");
-    hex(&Sha256::digest(json.as_bytes()))
+    // The canonicalization lives in circuit-ir so every consumer (this
+    // cache, corpus content fingerprints) agrees on it by construction.
+    ir.semantic_fingerprint()
 }
 
 /// SHA-256 hex of a file's contents.
@@ -311,6 +318,20 @@ mod tests {
         let mut b = ir();
         b.constraints[0].terms[0].coeff = "2".into();
         assert_ne!(fingerprint(&a), fingerprint(&b));
+    }
+
+    #[test]
+    fn origin_spans_do_not_participate() {
+        // Origins are diagnostics, not semantics: a comment edit shifting a
+        // gadget's line numbers must not invalidate its cached verdict.
+        let a = ir();
+        let mut b = ir();
+        b.constraints[0].origin = Some(circuit_ir::SourceSpan {
+            file: "boolean.rs".into(),
+            line: 61,
+            label: None,
+        });
+        assert_eq!(fingerprint(&a), fingerprint(&b));
     }
 
     fn audits() -> AuditReport {

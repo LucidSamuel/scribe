@@ -374,3 +374,44 @@ fn extracted_ir_validates_against_the_schema() {
         .collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
+
+#[test]
+fn constraints_carry_gadget_source_spans() {
+    // Follow-up F3: `#[track_caller]` on the extractor's `enforce_zero` and
+    // `gate` impls captures the GADGET source line each constraint came from
+    // — the immediate caller is ragu_primitives' gadget code, not ragu
+    // internals — so D2 diagnostics can cite `boolean.rs:NN` instead of a
+    // generated hypothesis name.
+    let ir = boolean_bit_ir().unwrap();
+
+    let origin_of = |label: &str| {
+        ir.constraints
+            .iter()
+            .find(|c| c.label == label)
+            .unwrap_or_else(|| panic!("no constraint {label}"))
+            .origin
+            .clone()
+    };
+
+    // Gadget-emitted constraints cite ragu_primitives' boolean gadget.
+    for label in ["lc0", "lc1", "g1_mul", "g1_aux"] {
+        let origin = origin_of(label).unwrap_or_else(|| panic!("{label} lost its origin"));
+        assert!(
+            origin.file.contains("ragu_primitives") && origin.file.ends_with("boolean.rs"),
+            "{label} cites {}:{} — expected the boolean gadget source",
+            origin.file,
+            origin.line
+        );
+        assert!(origin.line > 0);
+    }
+    // The gate pair shares one call site; the two enforce_zero lines differ.
+    assert_eq!(origin_of("g1_mul"), origin_of("g1_aux"));
+    assert_ne!(origin_of("lc0"), origin_of("lc1"));
+
+    // Extractor-emitted bookkeeping (SYSTEM gate, output binding, the ONE
+    // constraint) has no user source line and must stay origin-free rather
+    // than citing scribe's own internals.
+    for label in ["g0_mul", "g0_aux", "out0_bind", "one_is_1"] {
+        assert!(origin_of(label).is_none(), "{label} should carry no origin");
+    }
+}

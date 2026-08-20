@@ -99,8 +99,21 @@ cosmetic.
 
 ## F3 — Extracted ragu constraints carry no source spans
 
-**Status:** open. Surfaced by the Phase B review; owner Phase A (frontend-ragu
-enhancement) with a D2 rendering consequence.
+**Status: CLOSED 2026-08-20** (rode with D1, as planned). `#[track_caller]` on
+the extractor's `enforce_zero` and `gate` impls captures the *gadget-level*
+call site — empirically `crates/ragu_primitives/src/boolean.rs:61` etc., the
+real source lines, because gadget code calls those driver methods directly —
+and stamps it into `Constraint.origin` (regression test
+`constraints_carry_gadget_source_spans`). Extractor-emitted bookkeeping
+(SYSTEM gate, output bindings, the ONE constraint) deliberately stays
+origin-free rather than citing scribe internals. Two design consequences:
+origins are **excluded from the D4 fingerprint** (they are diagnostics, not
+semantics — a comment edit shifting gadget line numbers must not invalidate
+cached verdicts; test `origin_spans_do_not_participate`), and `Definition`
+still carries no span (no `origin` field; a virtual wire is not a constraint
+D2 ever cites — widen only if a real diagnostic needs it).
+
+Original finding, kept for context:
 **Where:** `crates/frontend-ragu` sets `origin: None` on every extracted
 constraint; `crates/scribe-cli/src/citations.rs` then falls back as designed.
 

@@ -17,6 +17,7 @@ gadget-ir = { path = "../gadget-ir" }
 halva-bridge = { path = "../halva-bridge" }
 jsonschema = { version = "0.26", default-features = false }
 lean-emit = { path = "../lean-emit" }
+oracle-lean = { path = "../oracle-lean" }
 proof-pilot = { path = "../proof-pilot" }
 scribe-core = { path = "../scribe-core" }
 scribe-frontend = { path = "../scribe-frontend" }

@@ -99,7 +99,11 @@
           ]
         }
       ],
-      "origin": null
+      "origin": {
+        "file": "crates/ragu_primitives/src/boolean.rs",
+        "line": 58,
+        "label": null
+      }
     },
     {
       "label": "g1_aux",
@@ -112,7 +116,11 @@
           ]
         }
       ],
-      "origin": null
+      "origin": {
+        "file": "crates/ragu_primitives/src/boolean.rs",
+        "line": 58,
+        "label": null
+      }
     },
     {
       "label": "lc0",
@@ -124,7 +132,11 @@
           ]
         }
       ],
-      "origin": null
+      "origin": {
+        "file": "crates/ragu_primitives/src/boolean.rs",
+        "line": 61,
+        "label": null
+      }
     },
     {
       "label": "lc1",
@@ -148,7 +160,11 @@
           ]
         }
       ],
-      "origin": null
+      "origin": {
+        "file": "crates/ragu_primitives/src/boolean.rs",
+        "line": 65,
+        "label": null
+      }
     },
     {
       "label": "out0_bind",

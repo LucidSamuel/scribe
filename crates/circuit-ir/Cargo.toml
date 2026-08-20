@@ -8,6 +8,7 @@ description = "Circuit IR — the subject type of circuit claims (not the spine)
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 toml = "0.8"
 
 [dev-dependencies]

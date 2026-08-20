@@ -8,6 +8,7 @@ members = [
     "crates/frontend-ragu",
     "crates/oracle-lean",
     "crates/oracle-differential",
+    "crates/scribe-macros",
     "crates/gadget-ir",
     "crates/lean-emit",
     "crates/proof-pilot",

@@ -4,6 +4,7 @@ use std::process;
 mod cache;
 mod check;
 mod citations;
+mod corpus_ops;
 mod extract;
 mod golf;
 mod init;
@@ -98,6 +99,20 @@ enum Commands {
     /// Static checks alone never exit 0: an exit 0 from `check` always means
     /// kernel-checked evidence exists.
     Check(check_cmd::CheckArgs),
+
+    /// Corpus tooling: measure an oracle against its corpus, and grow the
+    /// corpus when a real-world bug is confirmed.
+    ///
+    /// `corpus validate` runs scribe-core's validate() over every instance
+    /// and renders the DiscriminationReport with ESCAPES AS ALARMS — an
+    /// escaped negative means the oracle accepted something known to be
+    /// wrong. Exit codes: 0 = clean discrimination, 1 = incomplete (uncaught
+    /// negatives / unaccepted positives, no escapes), 2 = ESCAPE, 3 = infra.
+    /// `--dry-run` renders the committed report without calling a model.
+    ///
+    /// `corpus add` records a new known-bad (or known-good) instance —
+    /// corpus entries are permanent evidence (locked decision 5).
+    Corpus(corpus_cmd::CorpusArgs),
 
     /// zkGolf competition mode: prove the five obligations of a zk.golf
     /// challenge inside the zk-golf-challenges lake project.
@@ -423,6 +438,99 @@ mod judge_cmd {
     }
 }
 
+mod corpus_cmd {
+    use clap::{Args, Subcommand};
+
+    #[derive(Args)]
+    pub struct CorpusArgs {
+        #[command(subcommand)]
+        pub action: CorpusAction,
+    }
+
+    #[derive(Subcommand)]
+    pub enum CorpusAction {
+        /// Run validate(oracle, corpus) and render the DiscriminationReport,
+        /// escapes first, as alarms.
+        Validate(ValidateArgs),
+        /// Record a new instance. Corpus entries are permanent evidence.
+        Add(AddArgs),
+    }
+
+    #[derive(Args)]
+    pub struct ValidateArgs {
+        /// Corpus directory (contains corpus.toml).
+        #[arg(long, value_name = "DIR", default_value = "corpus/circuits")]
+        pub corpus: String,
+
+        /// Render the corpus and its COMMITTED report without calling a
+        /// model (free tier). Exit code reflects the committed report.
+        #[arg(long)]
+        pub dry_run: bool,
+
+        /// Output path for the committed validation
+        /// (default: `<corpus>/discrimination-report.json`).
+        #[arg(long, value_name = "FILE")]
+        pub out: Option<String>,
+
+        /// Lake project directory (default: $LAKE_DIR env var, else `lean`).
+        #[arg(long, value_name = "DIR")]
+        pub lake_dir: Option<String>,
+
+        /// Prover iterations per instance (default: 3).
+        #[arg(long, value_name = "N", default_value = "3")]
+        pub prove_iters: u32,
+
+        /// Refuter iterations per instance (default: 6).
+        #[arg(long, value_name = "N", default_value = "6")]
+        pub refute_iters: u32,
+
+        /// LLM backend to use (default: claude). See `scribe verify --help`.
+        #[arg(long, value_name = "NAME", default_value = "claude")]
+        pub backend: String,
+
+        /// Model name override.
+        #[arg(long, value_name = "MODEL")]
+        pub model: Option<String>,
+
+        /// API key for the selected backend.
+        #[arg(long, value_name = "KEY")]
+        pub api_key: Option<String>,
+
+        /// API base URL override.
+        #[arg(long, value_name = "URL")]
+        pub base_url: Option<String>,
+    }
+
+    #[derive(Args)]
+    pub struct AddArgs {
+        /// Corpus directory (contains corpus.toml).
+        #[arg(long, value_name = "DIR", default_value = "corpus/circuits")]
+        pub corpus: String,
+
+        /// IR file to add (gadget TOML or CircuitIR JSON). Copied into the
+        /// corpus directory; must carry a soundness_spec.
+        #[arg(long, value_name = "FILE")]
+        pub file: String,
+
+        /// Stable instance id (e.g. `neg-underconstrained-nullifier`). This
+        /// is the name an escape is reported by.
+        #[arg(long, value_name = "ID")]
+        pub id: String,
+
+        /// `negative` (the oracle MUST reject) or `positive` (MUST accept).
+        #[arg(long, value_name = "KIND")]
+        pub kind: String,
+
+        /// Why this instance is in the corpus (e.g. the bug it reproduces).
+        #[arg(long, value_name = "TEXT")]
+        pub note: String,
+
+        /// Where it came from (issue link, commit, report).
+        #[arg(long, value_name = "TEXT")]
+        pub origin: Option<String>,
+    }
+}
+
 mod check_cmd {
     use clap::Args;
 
@@ -478,6 +586,9 @@ fn main() {
         }
         Commands::Check(args) => {
             check::run_check(args);
+        }
+        Commands::Corpus(args) => {
+            corpus_ops::run_corpus(args);
         }
         Commands::Golf(args) => {
             golf::run(args);
@@ -846,6 +957,58 @@ mod tests {
         } else {
             panic!("expected Check");
         }
+    }
+
+    #[test]
+    fn corpus_validate_and_add_parse() {
+        let cli = Cli::try_parse_from(["scribe", "corpus", "validate", "--dry-run"])
+            .expect("should parse");
+        if let Commands::Corpus(args) = cli.command {
+            match args.action {
+                corpus_cmd::CorpusAction::Validate(v) => {
+                    assert!(v.dry_run);
+                    assert_eq!(v.corpus, "corpus/circuits");
+                    assert_eq!(v.prove_iters, 3);
+                    assert_eq!(v.refute_iters, 6);
+                }
+                _ => panic!("expected Validate"),
+            }
+        } else {
+            panic!("expected Corpus");
+        }
+
+        let cli = Cli::try_parse_from([
+            "scribe",
+            "corpus",
+            "add",
+            "--file",
+            "bug.toml",
+            "--id",
+            "neg-x",
+            "--kind",
+            "negative",
+            "--note",
+            "reproduces issue 42",
+        ])
+        .expect("should parse");
+        if let Commands::Corpus(args) = cli.command {
+            match args.action {
+                corpus_cmd::CorpusAction::Add(a) => {
+                    assert_eq!(a.id, "neg-x");
+                    assert_eq!(a.kind, "negative");
+                    assert!(a.origin.is_none());
+                }
+                _ => panic!("expected Add"),
+            }
+        } else {
+            panic!("expected Corpus");
+        }
+
+        // note is mandatory: an unexplained corpus entry is not evidence
+        assert!(Cli::try_parse_from([
+            "scribe", "corpus", "add", "--file", "b.toml", "--id", "x", "--kind", "negative",
+        ])
+        .is_err());
     }
 
     #[test]
