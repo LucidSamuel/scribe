@@ -1179,11 +1179,113 @@ mod tests {
         assert!(ty.contains("257 > 256 →"));
         assert!(ty.contains("b0 * b0 - b0 = 0 →"));
         assert!(ty.trim_end().ends_with("(ZMod.val x < 256))"));
-        // and the emitted refutation scaffold contains this exact type
-        let scaffold = emit_refutation(&circuit, 257).unwrap();
-        for line in ty.lines().take(3) {
-            assert!(scaffold.contains(line.trim()), "missing: {line}");
+    }
+
+    fn tokens(s: &str) -> Vec<&str> {
+        s.split_whitespace().collect()
+    }
+
+    /// The statement `soundness_statement` regenerates must be token-identical
+    /// to the theorem statement `emit_lean` emits (modulo the `theorem` /
+    /// `∀`-type framing). The two are parallel renderings of the same pieces;
+    /// if one is ever edited without the other, the binding oracle starts
+    /// giving false results in both directions — the probe would bind proofs
+    /// to a statement the scaffold no longer emits, or refuse proofs of the
+    /// statement it does.
+    fn assert_soundness_statement_matches(circuit: &CircuitIR) {
+        let (name, ty) = soundness_statement(circuit).unwrap();
+        let scaffold = emit_lean(circuit).unwrap();
+
+        let header = format!("theorem {name}\n");
+        let start = scaffold
+            .find(&header)
+            .unwrap_or_else(|| panic!("scaffold lacks `{header}`"))
+            + header.len();
+        let end = scaffold[start..]
+            .find(" := by")
+            .expect("scaffold theorem has a proof marker");
+        let slice = &scaffold[start..start + end];
+
+        // The scaffold writes binders then `    : <conclusion>`; the ∀-type
+        // writes the same binders then `    , <conclusion>` under a
+        // `∀ (p : ℕ) [Fact (Nat.Prime p)]` head that the scaffold's
+        // `variable` line supplies instead.
+        let expected = format!(
+            "∀ (p : ℕ) [Fact (Nat.Prime p)]\n{}",
+            slice.replacen("\n    : ", "\n    , ", 1)
+        );
+        assert_eq!(
+            tokens(&ty),
+            tokens(&expected),
+            "soundness_statement drifted from emit_lean for {}",
+            circuit.name
+        );
+    }
+
+    /// Same guard for the refutation pair: the regenerated type must be
+    /// token-identical to what `emit_refutation` declares.
+    fn assert_refutation_statement_matches(circuit: &CircuitIR, prime: u64) {
+        let (name, ty) = refutation_statement(circuit, prime).unwrap();
+        let scaffold = emit_refutation(circuit, prime).unwrap();
+
+        let header = format!("theorem {name}\n    : ");
+        let start = scaffold
+            .find(&header)
+            .unwrap_or_else(|| panic!("refutation scaffold lacks `{header}`"))
+            + header.len();
+        let end = scaffold[start..]
+            .find(" := by")
+            .expect("refutation theorem has a proof marker");
+        let slice = &scaffold[start..start + end];
+
+        assert_eq!(
+            tokens(&ty),
+            tokens(slice),
+            "refutation_statement drifted from emit_refutation for {}",
+            circuit.name
+        );
+    }
+
+    #[test]
+    fn statements_match_emitted_theorems_for_every_gadget() {
+        for gadget in [
+            "range-check",
+            "conditional-select",
+            "poseidon-sbox",
+            "nonzero-check",
+            "edwards-addition",
+        ] {
+            let circuit = load(gadget);
+            assert_soundness_statement_matches(&circuit);
+            let prime = refutation_prime(&circuit, 5);
+            assert_refutation_statement_matches(&circuit, prime);
         }
+
+        // definition-bearing shape too — the let-chain + named-arrow branch
+        // is a separate code path in both renderers
+        let with_def = CircuitIR {
+            name: "def-drift-guard".to_string(),
+            modulus: "17".to_string(),
+            public: vec![var(0, "out")],
+            private: vec![var(1, "x"), var(2, "y")],
+            definitions: vec![Definition {
+                id: 3,
+                name: "s".to_string(),
+                terms: vec![term("1", &[1]), term("2", &[2]), term("1", &[])],
+            }],
+            constraints: vec![
+                constraint("uses_s", vec![term("1", &[3, 3]), term("-1", &[0])]),
+                constraint("pin", vec![term("1", &[1])]),
+            ],
+            hypotheses: vec![circuit_ir::Hypothesis {
+                name: "hp".into(),
+                lean_type: "p > 2".into(),
+            }],
+            soundness_spec: Some("out = (x + 2 * y + 1) ^ 2".to_string()),
+            ..Default::default()
+        };
+        assert_soundness_statement_matches(&with_def);
+        assert_refutation_statement_matches(&with_def, 5);
     }
 
     #[test]
