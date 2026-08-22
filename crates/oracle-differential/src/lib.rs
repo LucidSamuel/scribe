@@ -11,13 +11,13 @@
 //! The oracle is boringly thin on purpose (locked decision 4): run both
 //! computations on every input, accept iff all outputs match, reject on any
 //! mismatch, and return `Undetermined` on a panic — a crash is evidence of a
-//! crash, not proof of inequivalence. The interesting work is the corpus in
-//! `corpus/msm/` and the coverage measurement behind it
-//! (`docs/v2.1/equivalence-notes.md`): the input distribution mirrors the MSM
-//! sizes ragu's fuzz fleet actually reaches, and one planted mutant lives in
-//! a window-strategy band (`bucket_lookup` selecting `c >= 11`, i.e.
-//! `n >= 22027`) that the fleet demonstrably never enters — so it escapes
-//! `validate()`, which is the finding.
+//! crash, not proof of inequivalence. The interesting work is in the versioned
+//! corpora. `corpus/msm/` records the original fuzz-fleet measurement
+//! (`docs/v2.1/equivalence-notes.md`), while `corpus/msm-pr842/` records the
+//! size support of ragu PR #842's direct MSM equivalence strategy. Each
+//! includes a planted mutant outside its input distribution so `validate()`
+//! reports an escape instead of allowing a green result to imply unmeasured
+//! discriminating power.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
@@ -239,6 +239,22 @@ fn mutant_window_shift_drop(coeffs: &[Scalar], bases: &[Affine]) -> Point {
     msm_with_defect(coeffs, bases, Defect::WindowShiftDrop)
 }
 
+fn mutant_add_base_at_size(coeffs: &[Scalar], bases: &[Affine], size: usize) -> Point {
+    let mut result = msm_reference(coeffs, bases);
+    if coeffs.len() == size {
+        result += bases[0];
+    }
+    result
+}
+
+fn mutant_pr842_8104_add_base(coeffs: &[Scalar], bases: &[Affine]) -> Point {
+    mutant_add_base_at_size(coeffs, bases, 8104)
+}
+
+fn mutant_pr842_8192_add_base(coeffs: &[Scalar], bases: &[Affine]) -> Point {
+    mutant_add_base_at_size(coeffs, bases, 8192)
+}
+
 fn reference(coeffs: &[Scalar], bases: &[Affine]) -> Point {
     msm_reference(coeffs, bases)
 }
@@ -251,11 +267,13 @@ pub fn candidate_by_name(name: &str) -> Option<MsmFn> {
         "mutant-wide-window-skip-double" => mutant_wide_window_skip_double,
         "mutant-bucket-collision-drop" => mutant_bucket_collision_drop,
         "mutant-window-shift-drop" => mutant_window_shift_drop,
+        "mutant-pr842-8104-add-base" => mutant_pr842_8104_add_base,
+        "mutant-pr842-8192-add-base" => mutant_pr842_8192_add_base,
         _ => return None,
     })
 }
 
-/// One corpus entry as recorded in `corpus/msm/manifest.json`.
+/// One corpus entry as recorded in a versioned MSM manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestEntry {
     /// Stable instance id.
@@ -266,7 +284,7 @@ pub struct ManifestEntry {
     pub description: String,
 }
 
-/// The versioned corpus manifest (`corpus/msm/manifest.json`).
+/// A versioned MSM corpus manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     /// Corpus version (locked decision 5: corpora are versioned artifacts).
@@ -275,8 +293,7 @@ pub struct Manifest {
     pub ragu_revision: String,
     /// Seed for the deterministic input pool.
     pub pool_seed: u64,
-    /// The input distribution: MSM sizes mirroring what the fuzz fleet
-    /// reaches (see `docs/v2.1/equivalence-notes.md` for the measurement).
+    /// The input distribution: MSM sizes exposed to every corpus candidate.
     pub input_sizes: Vec<usize>,
     /// Instances the oracle must accept.
     pub positives: Vec<ManifestEntry>,
@@ -284,7 +301,7 @@ pub struct Manifest {
     pub negatives: Vec<ManifestEntry>,
 }
 
-/// `Corpus<EquivalenceClaim>` backed by `corpus/msm/manifest.json`.
+/// `Corpus<EquivalenceClaim>` backed by a versioned MSM manifest.
 pub struct MsmCorpus {
     manifest: Manifest,
     inputs: MsmInputs,
@@ -315,6 +332,19 @@ impl MsmCorpus {
             env!("CARGO_MANIFEST_DIR"),
             "/../../corpus/msm/manifest.json"
         );
+        Self::load_file(path)
+    }
+
+    /// Loads the corpus modeling ragu PR #842's MSM size-strategy support.
+    pub fn load_pr842() -> Result<Self, String> {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../corpus/msm-pr842/manifest.json"
+        );
+        Self::load_file(path)
+    }
+
+    fn load_file(path: &str) -> Result<Self, String> {
         let json = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
         Self::from_manifest_str(&json)
     }
