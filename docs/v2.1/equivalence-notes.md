@@ -6,6 +6,16 @@ Status: measured 2026-08-18. Ragu pinned at `origin/main` =
 isolated clone checked out at that revision — the working tree was not
 touched). This doubles as the draft basis for a comment on ragu #834.
 
+> **2026-08-22 follow-up:** this document remains the historical fuzz-fleet
+> measurement and `msm-corpus-v1` record; it is not an assessment of current
+> PR #842. That PR now drives direct MSM cases through `ProductionRank`, and
+> its end-to-end prover reaches sizes 8190, 8191, and 8192. A new mutation
+> experiment found a narrower escaped path at Zakura's actual 8104
+> Booth-window transition because the PR strategy samples powers of two +/- 1.
+> The versioned follow-up corpus and report live in `corpus/msm-pr842/`; the
+> current upstream draft and reproduction summary are in
+> [`upstream-drafts.md`](upstream-drafts.md#current-replacement-for-draft-1-2026-08-22).
+
 ## What was measured
 
 `ragu_arithmetic::util::msm` selects its window strategy via `bucket_lookup(n)`,

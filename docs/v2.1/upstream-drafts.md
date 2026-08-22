@@ -1,11 +1,118 @@
 # Upstream drafts for tachyon-zcash/ragu
 
-Status: drafts only, written 2026-08-21. **Nothing here has been posted.** Both
-drafts are based on ragu pinned at `fc61822c` (the Phase B/C audit revision),
-re-verified against upstream state as of 2026-08-21 (`origin/main` =
-`02d1b151`, 2026-08-20). Samuel reviews, edits, and posts these himself.
+Status: drafts only, updated 2026-08-22. **Nothing here has been posted.** The
+current replacement for draft 1 is verified against PR #842 at `48433931`.
+The original 2026-08-21 draft is retained below as explicitly superseded
+historical material. Samuel reviews, edits, and posts these himself.
 
-## Upstream activity check (2026-08-21)
+## Current replacement for draft 1 (2026-08-22)
+
+**What it is.** A mutation-tested finding about the discriminating power of
+PR #842's exact acceptance commands. It supersedes the older claim that the
+direct MSM property is capped at 255 terms: #842 now samples through
+`ProductionRank = 8192`, and the end-to-end prover genuinely reaches MSM sizes
+8190, 8191, and 8192.
+
+**Where it goes.** Prefer a concise comment on
+<https://github.com/tachyon-zcash/ragu/pull/842>, because the concrete fix is a
+small addition to `crates/ragu_acceleration/tests/msm_equivalence.rs`. The
+general discrimination-certificate recommendation can also be linked from
+<https://github.com/tachyon-zcash/ragu/issues/834>.
+
+**Measured result.** In an isolated worktree at `48433931`, a sentinel defect
+was planted in `accelerated_msm`: return an incorrect result only when
+`coeffs.len() == 8104`. This is the highest Zakura Booth-window transition
+below `ProductionRank`, not a power-of-two boundary.
+
+The mutant escaped both commands used by the native-MSM acceptance path:
+
+```text
+cargo test --release -p ragu_acceleration --locked --features native-msm \
+  --test msm_equivalence -- --test-threads=1
+
+cargo test --release -p ragu_pcd --locked --features native-msm \
+  --lib backend_tests:: -- --test-threads=1
+```
+
+The escape is deterministic. `arb_msm_size()` can generate arbitrary sizes
+only through `TestRank` (0 through 128); above that it generates powers of two
+plus or minus one. It therefore cannot generate 149, 404, 1097, 2981, 8104,
+or their immediate lower neighbors.
+
+A deterministic boundary table for both Pasta curves killed the mutant
+immediately and passed against clean #842. The complete three-test MSM suite
+then passed, as did native-MSM Clippy with `-D warnings`. A positive-control
+mutant at `n == 8192` was rejected by the existing end-to-end proof-digest
+comparison, confirming that the accelerated route is live and the finding is
+specifically about unsupported decision boundaries rather than a vacuous
+harness.
+
+The current acceptance surface is now also encoded as the versioned Scribe
+corpus `corpus/msm-pr842/`. Its input set is the complete support of #842's
+`arb_msm_size()` strategy: every size from 0 through 128, then every supported
+power-of-two neighbor through 8192. A fresh `validate()` run reports 1/2
+negatives caught, with only `msm-pr842-mutant-8104-add-base` escaping. A
+separate test supplies the missing 8104 case and rejects that mutant, proving
+the escape is caused by the corpus boundary rather than a no-op defect.
+
+**Additional hardening included in the local patch.** `Proof::test_digest`
+currently accounts for every audited field, but its schema is a manual walk.
+An exhaustive `Proof { field: _, ... }` pattern without `..` makes a future
+field addition fail compilation until the digest module consciously accounts
+for it. This does not change the digest or protocol.
+
+### Current draft text
+
+> I decided to play around with Scribe here by treating #842's exact CI
+> commands as an oracle and asking a stricter question: can the green check be
+> made red by a known-bad implementation?
+>
+> I encoded the complete size support of `arb_msm_size()` as a versioned
+> Scribe corpus and ran two paired negatives through the same differential
+> oracle: an incorrect result at `n = 8192` is caught, while the same defect at
+> `n = 8104` escapes. The resulting discrimination report is 1/2 negatives
+> caught, with the 8104 mutant named as the escape. Supplying 8104 directly
+> rejects it, so the mutant is real and the escape is caused by input support.
+>
+> On #842 HEAD (`48433931`), I planted a one-line sentinel defect in the
+> accelerated MSM: return an incorrect result only when
+> `coeffs.len() == 8104`. That is not an arbitrary large size; it is the
+> highest Booth-window transition in Zakura's `best_multiexp` below
+> `ProductionRank = 8192`.
+>
+> Both existing acceptance layers stayed green: the direct Pallas/Vesta MSM
+> differential properties passed, and the end-to-end PCD backend-equivalence
+> tests passed.
+>
+> The reason is deterministic. The direct strategy's `window_boundaries`
+> branch samples powers of two +/- 1, while Zakura changes its Booth window at
+> 4, 32, 55, 149, 404, 1097, 2981, and 8104. Its other size branch is bounded
+> by `TestRank = 128`, so most of those transition points are outside the
+> strategy's support.
+>
+> I added a small deterministic table covering both sides of every real
+> transition for both Pasta curves, plus the production maximum:
+> `3/4, 31/32, 54/55, 148/149, 403/404, 1096/1097, 2980/2981, 8103/8104,
+> 8192`. The new test fails immediately against the planted defect and passes
+> against clean HEAD; the full MSM suite and Clippy also remain green.
+>
+> As a positive control, a defect at `n = 8192` is already caught by the
+> end-to-end proof-digest test. I also instrumented backend dispatch: proving
+> reaches MSM sizes 8190, 8191, and 8192. So this is not a claim that the
+> current harness is vacuous. The production route is live; the gap is that
+> probabilistic power-of-two sampling does not guarantee coverage of the
+> optimized dependency's actual decision boundaries.
+>
+> I think the immediate fix is the deterministic transition test beside the
+> proptest. More generally, each optimization PR could carry a small
+> discrimination certificate: prove the override ran, enumerate its
+> implementation decision boundaries, and show that the exact acceptance
+> command rejects at least one planted defect. I have a tested patch for the
+> transition suite if useful.
+
+---
+
+## Historical upstream activity check (2026-08-21)
 
 **#834** ("AI-assisted prover optimization loop", open, `C-performance`/`I-pcd`)
 has moved fast since the fc61822c pin: TalDerei posted an architecture proposal
@@ -28,7 +135,12 @@ issue or discussion about the `Extra = ()` shim exists upstream.
 
 ---
 
-## Draft 1 — comment on issue #834
+## Superseded draft 1 — do not post
+
+This draft predates #842's expansion through `ProductionRank`. Its claims that
+direct MSM equivalence is capped at 255 terms and never selects `c >= 7` are
+historically accurate for #841 alone but stale for the current stacked PR.
+Use the 2026-08-22 replacement above.
 
 **What it is.** Feedback on the input-size coverage of the differential
 acceptance oracle (checklist item 3 / PR #841, gating item 4 / PR #842), based
@@ -73,8 +185,8 @@ public, a concrete link can replace it.
 > I did an input-size coverage measurement of `ragu_arithmetic::util::msm`
 > that seems directly relevant to the equivalence harness (checklist item 3,
 > #841) and the acceptance rule for overrides (item 4, #842). Measured at
-> `fc61822c` (2026-08-16), before the backend seam landed — band edges below
-> are as of that rev.
+> `fc61822c` (2026-08-16), before the backend seam landed; `util.rs` is
+> unchanged on `main` as of `02d1b151`, so the band edges below are current.
 >
 > **Background.** `msm` selects its window width via `bucket_lookup(n)`, a
 > 15-threshold table partitioning `n` into 16 bands (`c = 1..=16`). Bands take
