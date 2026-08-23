@@ -242,3 +242,23 @@ which is a workspace-owner (Phase A) decision.
   fuse MSM, `Limits::default() == 48`, and the named deviations
   (`ProductionRank` in verify-reject, 64 in circuit-cheat, 16 in
   witness-pinning).
+
+## Outcome: fix landed upstream (2026-08-23)
+
+The PR-842 finding (deterministic 8104 escape, see the 2026-08-22 addendum
+above and `corpus/msm-pr842/`) was posted as a comment on #842 alongside
+PR #852 carrying the deterministic window-transition table. TalDerei
+cherry-picked the patch into #842 with co-authorship — commit `2484d594`
+"ragu_acceleration: cover MSM window transitions" is now #842's HEAD — and
+closed #852 as superseded. This is the Phase C thread completing its arc:
+coverage measurement → escaped mutant → upstream adoption of the exact
+close the escape demonstrated (recommendation 3's PATCHER_SELFTEST-style
+discipline applied to input size).
+
+Consequence for the corpus: `corpus/msm-pr842/`'s committed
+discrimination-report.json describes #842's acceptance surface at
+`48433931`, BEFORE the transition table. That report is the permanent
+evidence of the gap (the escape is the finding); once #842 merges, a
+re-measurement against the post-fix surface should show 2/2 negatives
+caught — worth committing as a second report (new corpus version, not an
+overwrite) to document the close.
