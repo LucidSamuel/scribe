@@ -1,9 +1,11 @@
 # Upstream drafts for tachyon-zcash/ragu
 
-Status: drafts only, updated 2026-08-22. **Nothing here has been posted.** The
-current replacement for draft 1 is verified against PR #842 at `48433931`.
-The original 2026-08-21 draft is retained below as explicitly superseded
-historical material. Samuel reviews, edits, and posts these himself.
+Status: updated 2026-08-24. **Draft 1 (the 2026-08-22 replacement) was POSTED
+by Samuel as a comment on PR #842 on 2026-08-23**, alongside the pushed
+ragu-side transition-table patch. **Draft 2 remains unposted** and awaits
+Samuel's review (verify #612/#655 before posting). The replacement draft was
+verified against PR #842 at `48433931`; the original 2026-08-21 draft 1 is
+retained below as explicitly superseded historical material.
 
 ## Current replacement for draft 1 (2026-08-22)
 
