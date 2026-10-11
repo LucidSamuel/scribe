@@ -30,8 +30,6 @@ struct GadgetEntry {
     file: String,
     tier: u8,
     constraints: usize,
-    #[allow(dead_code)]
-    description: String,
     #[serde(default)]
     kind: GadgetKind,
 }
@@ -366,7 +364,7 @@ fn main() {
 
     for (idx, entry) in manifest.gadgets.iter().enumerate() {
         let gadget_path = suite_dir.join(&entry.file);
-        let loaded = gadget_ir::load_gadget_file(&gadget_path)
+        let loaded = circuit_ir::load_toml_file(&gadget_path)
             .map_err(|e| format!("load: {e}"))
             .and_then(|g| {
                 lean_emit::emit_lean(&g)
@@ -1040,7 +1038,7 @@ mod tests {
         // Every gadget file referenced by the manifest exists and loads as gadget IR.
         let suite_dir = Path::new(path).parent().unwrap();
         for g in &manifest.gadgets {
-            gadget_ir::load_gadget_file(&suite_dir.join(&g.file))
+            circuit_ir::load_toml_file(&suite_dir.join(&g.file))
                 .unwrap_or_else(|e| panic!("{} does not load: {e}", g.file));
         }
     }
@@ -1143,7 +1141,6 @@ mod tests {
             file: "suite/neg-never-loaded.toml".to_string(),
             tier: 1,
             constraints: 1,
-            description: String::new(),
             kind: GadgetKind::Negative,
         };
         let r = failed_result(&entry, "build", "cannot read gadget file");

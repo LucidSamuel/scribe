@@ -1,0 +1,455 @@
+{
+  "ir_version": "1",
+  "name": "ragu_horner_three",
+  "modulus": "28948022309329048855892746252171976963363056481941560715954676764349967630337",
+  "provenance": {
+    "frontend": "frontend-ragu",
+    "frontend_version": "0.1.0",
+    "source": "frontend-ragu::horner::HornerThree",
+    "source_rev": "fc61822cf8c248d36b950c89817bf170d533a7f3"
+  },
+  "public": [
+    {
+      "id": 22,
+      "name": "out0"
+    }
+  ],
+  "private": [
+    {
+      "id": 0,
+      "name": "one"
+    },
+    {
+      "id": 1,
+      "name": "w1"
+    },
+    {
+      "id": 2,
+      "name": "w2"
+    },
+    {
+      "id": 3,
+      "name": "w3"
+    },
+    {
+      "id": 4,
+      "name": "w4"
+    },
+    {
+      "id": 5,
+      "name": "w5"
+    },
+    {
+      "id": 6,
+      "name": "w6"
+    },
+    {
+      "id": 7,
+      "name": "w7"
+    },
+    {
+      "id": 8,
+      "name": "w8"
+    },
+    {
+      "id": 9,
+      "name": "w9"
+    },
+    {
+      "id": 10,
+      "name": "w10"
+    },
+    {
+      "id": 11,
+      "name": "w11"
+    },
+    {
+      "id": 12,
+      "name": "w12"
+    },
+    {
+      "id": 13,
+      "name": "w13"
+    },
+    {
+      "id": 14,
+      "name": "w14"
+    },
+    {
+      "id": 15,
+      "name": "w15"
+    },
+    {
+      "id": 17,
+      "name": "w17"
+    },
+    {
+      "id": 18,
+      "name": "w18"
+    },
+    {
+      "id": 19,
+      "name": "w19"
+    },
+    {
+      "id": 20,
+      "name": "w20"
+    }
+  ],
+  "definitions": [
+    {
+      "id": 16,
+      "name": "v16",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            14
+          ]
+        },
+        {
+          "coeff": "1",
+          "vars": [
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "v21",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            19
+          ]
+        },
+        {
+          "coeff": "1",
+          "vars": [
+            8
+          ]
+        }
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "label": "g0_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            1,
+            2
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            3
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "g0_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            3,
+            0
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "g1_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            4,
+            5
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            6
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_primitives/src/allocator.rs",
+        "line": 113,
+        "label": null
+      }
+    },
+    {
+      "label": "g1_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            6,
+            7
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_primitives/src/allocator.rs",
+        "line": 113,
+        "label": null
+      }
+    },
+    {
+      "label": "g2_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            8,
+            9
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            10
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_primitives/src/allocator.rs",
+        "line": 113,
+        "label": null
+      }
+    },
+    {
+      "label": "g2_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            10,
+            11
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_primitives/src/allocator.rs",
+        "line": 113,
+        "label": null
+      }
+    },
+    {
+      "label": "g3_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            12,
+            13
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            14
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 301,
+        "label": null
+      }
+    },
+    {
+      "label": "g3_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            14,
+            15
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 301,
+        "label": null
+      }
+    },
+    {
+      "label": "lc0",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            12
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            4
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 347,
+        "label": null
+      }
+    },
+    {
+      "label": "lc1",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            13
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            11
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 347,
+        "label": null
+      }
+    },
+    {
+      "label": "g4_mul",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            17,
+            18
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            19
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 301,
+        "label": null
+      }
+    },
+    {
+      "label": "g4_aux",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            19,
+            20
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 301,
+        "label": null
+      }
+    },
+    {
+      "label": "lc2",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            17
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            16
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 347,
+        "label": null
+      }
+    },
+    {
+      "label": "lc3",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            18
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            11
+          ]
+        }
+      ],
+      "origin": {
+        "file": "crates/ragu_core/src/drivers.rs",
+        "line": 347,
+        "label": null
+      }
+    },
+    {
+      "label": "out0_bind",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            21
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": [
+            22
+          ]
+        }
+      ],
+      "origin": null
+    },
+    {
+      "label": "one_is_1",
+      "terms": [
+        {
+          "coeff": "1",
+          "vars": [
+            0
+          ]
+        },
+        {
+          "coeff": "-1",
+          "vars": []
+        }
+      ],
+      "origin": null
+    }
+  ],
+  "hypotheses": [],
+  "soundness_spec": "out0 = w4 * w11 ^ 2 + w7 * w11 + w8"
+}

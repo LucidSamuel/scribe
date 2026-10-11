@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "assurance": "conditional extracted-circuit refinement; source hashes only invalidate drift",
+  "ragu_revision": "fc61822cf8c248d36b950c89817bf170d533a7f3",
+  "sha256": {
+    "crates/frontend-ragu/src/horner.rs": "d20f90a88ed9983165f5b0dfa4edb5e0546b4537347d40d6ab452730500cb2ae",
+    "crates/frontend-ragu/src/lib.rs": "6153a1920a567116c8382c10527e9df71607850d20019d58e16b61a89301612a",
+    "crates/lean-emit/src/lib.rs": "3deec41dcb0daaca3cbb400731c61b29d44ce00a41576e8a4123e753c102214f",
+    "Cargo.lock": "eb0a2e7dcac9328fe6c1789aee7d3b12bccc14349b152455876ed3257d726794",
+    "lean/lean-toolchain": "ce4c4e3d87434b9663f46de25ce34b48a0cf0d392e0a320a0787b4674a2d7b61",
+    "lean/lake-manifest.json": "d216a7ebbbfeda85e885d3b74f02d3116f22680df29493e59187c8ce58322946"
+  }
+}

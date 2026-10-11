@@ -496,14 +496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gadget-ir"
-version = "0.1.0"
-dependencies = [
- "circuit-ir",
- "toml 0.8.23",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -562,13 +554,6 @@ dependencies = [
  "ff 0.14.0",
  "rand_core 0.10.1",
  "subtle",
-]
-
-[[package]]
-name = "halva-bridge"
-version = "0.1.0"
-dependencies = [
- "proof-pilot",
 ]
 
 [[package]]
@@ -1231,8 +1216,6 @@ dependencies = [
  "circuit-ir",
  "clap",
  "frontend-toml",
- "gadget-ir",
- "halva-bridge",
  "jsonschema",
  "lean-emit",
  "oracle-lean",
@@ -1997,7 +1980,7 @@ dependencies = [
 name = "zkgadget-eval"
 version = "0.1.0"
 dependencies = [
- "gadget-ir",
+ "circuit-ir",
  "lean-emit",
  "proof-pilot",
  "scribe-core",

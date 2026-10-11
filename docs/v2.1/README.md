@@ -1,7 +1,10 @@
 # v2.1 agent guide
 
-How to pick up and execute a v2.1 phase. Read this, then `roadmap-v2.1.md`,
-then your phase brief.
+Historical phase guide. See [architecture](../architecture.md) for the current
+implementation. The original phase ownership, shim-retention and Halva
+instructions in these briefs no longer describe the current workspace. Tests for
+retired commands are archived with their implementations; active behavior and
+input compatibility retain coverage.
 
 ## Before you write code
 
@@ -9,9 +12,8 @@ then your phase brief.
    resolved. If you think one is wrong, stop and say so; do not silently
    implement the alternative.
 2. Read your phase brief in this directory.
-3. Read `docs/architecture.md` — and note that it describes the *intended* v1
-   architecture, which v2.1 is making true. Where it disagrees with
-   `roadmap-v2.1.md`, the roadmap wins.
+3. Read `docs/architecture.md` for the current crate boundaries and assurance
+   limits. `roadmap-v2.1.md` records the original design contract.
 4. Check file ownership. If your change requires editing a file another phase
    owns, that is a handoff, not a workaround. Say so and stop.
 
@@ -33,8 +35,8 @@ then your phase brief.
 - **No `sorry`, `axiom`, or `native_decide` in any Lean you generate or commit.**
   The `#audit_axioms` gate is the source of truth; textual scans are a
   pre-filter. This is not negotiable and CI enforces it.
-- **Deprecate, don't delete.** `gadget-ir` stays as a re-export shim for one
-  release. Downstream code should keep compiling through the refactor.
+- **Migration completed.** Internal callers now use `circuit-ir`; `gadget-ir`
+  was retired under the 2026-10-09 scope decision.
 - **Every phase ships tests.** A phase without tests is not done. See "Definition
   of done" in the roadmap.
 

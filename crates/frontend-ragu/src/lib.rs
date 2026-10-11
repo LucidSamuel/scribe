@@ -27,7 +27,9 @@
 //! Every extraction re-runs the same circuit through ragu's own
 //! `ragu_circuits::metrics` pass (via `testing::synthesis_counts`) and fails
 //! hard — [`FrontendError::SelfValidation`] — if gate or constraint counts
-//! disagree. The extractor is checked, not trusted.
+//! disagree. This is a consistency check, not a semantic proof of extractor
+//! fidelity: the structure-only driver never evaluates witness closures.
+//! Extracted-circuit proofs therefore retain this translation trust boundary.
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -48,6 +50,7 @@ use ragu_primitives::{io::Write, Element};
 use scribe_frontend::{Frontend, FrontendError};
 
 pub mod circuits;
+pub mod horner;
 
 /// The ragu revision this extractor is built and validated against. Must match
 /// the `rev =` pins in this crate's `Cargo.toml` (a test enforces this) and is

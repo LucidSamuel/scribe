@@ -10,7 +10,7 @@ name = "zkgadget-eval"
 path = "src/main.rs"
 
 [dependencies]
-gadget-ir = { path = "../gadget-ir" }
+circuit-ir = { path = "../circuit-ir" }
 scribe-core = { path = "../scribe-core" }
 lean-emit = { path = "../lean-emit" }
 proof-pilot = { path = "../proof-pilot" }

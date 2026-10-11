@@ -13,7 +13,7 @@
 # org.opencontainers.image.description  LLM proof-completion loop for ZK gadgets
 
 ARG UBUNTU_VERSION=24.04
-ARG RUST_VERSION=1.90
+ARG RUST_VERSION=1.97.1
 
 # ── stage 1: rust-builder ─────────────────────────────────────────────────
 FROM ubuntu:${UBUNTU_VERSION} AS rust-builder
@@ -40,65 +40,18 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 
 WORKDIR /build
 
-# Cache dependency compilation: copy manifests first, then source.
-# Layer order: Cargo workspace root → each crate manifest → source
-COPY Cargo.toml Cargo.lock ./
-COPY crates/gadget-ir/Cargo.toml   crates/gadget-ir/Cargo.toml
-COPY crates/lean-emit/Cargo.toml   crates/lean-emit/Cargo.toml
-COPY crates/proof-pilot/Cargo.toml crates/proof-pilot/Cargo.toml
-COPY crates/halva-bridge/Cargo.toml crates/halva-bridge/Cargo.toml
-COPY crates/bench/Cargo.toml       crates/bench/Cargo.toml
-COPY crates/scribe-cli/Cargo.toml  crates/scribe-cli/Cargo.toml
-
-# Create stub lib/main files so `cargo build` can resolve the dependency graph
-# without the full source; replaced by COPY below.
-RUN mkdir -p \
-        crates/gadget-ir/src \
-        crates/lean-emit/src \
-        crates/proof-pilot/src \
-        crates/halva-bridge/src \
-        crates/scribe-cli/src \
-        crates/bench/src \
-    && for f in \
-        crates/gadget-ir/src/lib.rs \
-        crates/lean-emit/src/main.rs \
-        crates/proof-pilot/src/lib.rs \
-        crates/proof-pilot/src/main.rs \
-        crates/halva-bridge/src/lib.rs \
-        crates/halva-bridge/src/main.rs \
-        crates/scribe-cli/src/main.rs \
-        crates/bench/src/main.rs; \
-    do echo "fn main() {}" > "$f"; done \
-    && echo "" > crates/bench/src/lib.rs
-
-# Pre-warm the dependency cache
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/build/target \
-    cargo build --release --workspace 2>/dev/null || true
-
-# Now copy the full source and do the real build
+# Build the real workspace; BuildKit retains Cargo dependency and target caches.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ crates/
+COPY schema/ schema/
 COPY prompts/ prompts/
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/target \
-    # The dependency pre-warm above compiled stub crates into the target cache.
-    # COPY preserves the host mtime, which can be older than those cached stub
-    # artifacts, so cargo would skip rebuilding the real workspace crates and
-    # link the stale stubs. Bump the source mtimes to force a real rebuild
-    # (registry-cached dependencies are unaffected — they fingerprint by version).
-    find crates -name '*.rs' -exec touch {} + \
-    && cargo build --release --workspace \
+    cargo build --release --workspace --locked \
     && mkdir -p /out/bin \
-    # Copy whichever binaries exist; scribe-cli agent delivers `scribe` binary
-    && for bin in proof-pilot halva-bridge scribe; do \
-        if [ -f "target/release/$bin" ]; then \
-            cp "target/release/$bin" /out/bin/; \
-        fi; \
-    done \
-    && ls -lh /out/bin/
+    && cp target/release/proof-pilot target/release/scribe /out/bin/
 
 # ── stage 2: lean-builder ─────────────────────────────────────────────────
 FROM ubuntu:${UBUNTU_VERSION} AS lean-builder
@@ -175,7 +128,7 @@ COPY --from=rust-builder /out/bin/ /usr/local/bin/
 COPY prompts/ /opt/scribe/prompts/
 COPY examples/ /opt/scribe/examples/
 
-# PATH: elan-managed lake + lean take precedence; /usr/local/bin has scribe, proof-pilot, halva-bridge
+# PATH: elan-managed lake + lean take precedence; /usr/local/bin has scribe, proof-pilot
 ENV PATH="/opt/elan/bin:${PATH}" \
     ELAN_HOME="/opt/elan" \
     LAKE_DIR="/opt/lean-project" \
@@ -188,15 +141,12 @@ ENV PATH="/opt/elan/bin:${PATH}" \
 RUN TOOLCHAIN="$(cat /opt/lean-project/lean-toolchain)" \
     && elan default "$TOOLCHAIN" \
     && lean --version \
-    && lake --version
+    && lake --version \
+    && rm -rf /opt/lean-project/ZkGadgets/Bench
 
 # Default working directory for user-supplied circuits / proofs
 WORKDIR /workspace
 
 # Expose help text as the default CMD; override with any subcommand.
 # e.g.  docker run ghcr.io/lucidsamuel/scribe:latest scribe demo
-#        docker run -v $(pwd):/workspace ghcr.io/lucidsamuel/scribe:latest \
-#                   scribe verify --halva-output /workspace/extracted.lean \
-#                                 --spec-file /workspace/spec.lean \
-#                                 --output /workspace/Proof.lean
 CMD ["scribe", "--help"]

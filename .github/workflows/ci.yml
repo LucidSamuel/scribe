@@ -17,13 +17,24 @@ jobs:
       - run: cargo test --workspace
 
   lean:
-    name: lake build
+    name: Lean proofs and artifact bindings
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
       - uses: leanprover/lean-action@v1
         with:
           lake-package-directory: lean
+      - name: Check exact protocol corpus statements
+        run: python3 scripts/validate_protocol_corpus.py
+      - name: Fetch pinned Rust dependencies for offline refinement tests
+        run: cargo fetch --locked
+      - name: Check Ragu source, extraction and proof bindings
+        run: python3 scripts/check-horner-refinement.py
 
   lint:
     name: no sorry/axiom in proofs

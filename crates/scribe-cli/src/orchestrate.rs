@@ -1,24 +1,20 @@
-//! Orchestration logic for `scribe verify`, `scribe demo`, and `scribe refute`.
+//! Orchestration logic for `scribe demo`, `scribe judge`, and `scribe refute`.
 
 use std::fs;
 use std::path::Path;
 use std::process;
 
-use halva_bridge::{parse_halva_output, scaffold_raw, scaffold_soundness, SpecConfig};
 use proof_pilot::backend::make_backend;
 use proof_pilot::journal::SessionJournal;
 use proof_pilot::notes::{render_notes_styled, NotesStyle};
 use proof_pilot::session::{self, SessionConfig, SessionResult};
-use proof_pilot::transcript;
 
 use crate::cache;
 use crate::citations::SourceCitations;
 use crate::demo_cmd::DemoArgs;
-use crate::extract;
 use crate::judge_cmd::JudgeArgs;
 use crate::refute_cmd::RefuteArgs;
 use crate::verdict;
-use crate::verify_cmd::VerifyArgs;
 
 // ── Default paths / environment ──────────────────────────────────────────────
 
@@ -97,144 +93,6 @@ fn resolve_dir(explicit: Option<&str>, env: Option<String>, default: &str) -> St
         .unwrap_or_else(|| default.to_string())
 }
 
-// ── scribe verify ────────────────────────────────────────────────────────────
-
-pub fn run_verify(args: VerifyArgs) {
-    // 1. Extraction phase.
-    let halva_content = if let Some(ref path) = args.halva_output {
-        extract::from_halva_file(path)
-    } else if let Some(ref dir) = args.circuit {
-        extract::from_circuit_project(dir)
-    } else {
-        unreachable!("main already checks that one of --halva-output / --circuit is set");
-    };
-
-    // 2. Parse the Halva output.
-    let halva = parse_halva_output(&halva_content).unwrap_or_else(|e| {
-        eprintln!("error: failed to parse Halva output: {e}");
-        process::exit(1);
-    });
-    eprintln!(
-        "[scribe] parsed namespace: {}, meets_constraints: found",
-        halva.namespace
-    );
-
-    // 3. Scaffold the combined Lean file.
-    let combined = if let Some(ref snippet_path) = args.spec_file {
-        let snippet = fs::read_to_string(snippet_path).unwrap_or_else(|e| {
-            eprintln!("error: cannot read --spec-file {snippet_path}: {e}");
-            process::exit(1);
-        });
-        scaffold_raw(&halva, &snippet, !args.no_audit_gate)
-    } else if let Some(ref spec_body) = args.spec {
-        let config = SpecConfig {
-            spec_body: spec_body.clone(),
-            extra_imports: args.extra_imports.clone(),
-            audit_gate: !args.no_audit_gate,
-        };
-        scaffold_soundness(&halva, &config)
-    } else {
-        eprintln!("error: one of --spec or --spec-file is required");
-        process::exit(1);
-    };
-
-    // 4. Determine output path.
-    let out_path = args.output.clone().unwrap_or_else(|| {
-        let src = args
-            .halva_output
-            .as_deref()
-            .or(args.circuit.as_deref())
-            .unwrap_or("output");
-        let p = Path::new(src);
-        let stem = p.file_stem().unwrap_or_default().to_string_lossy();
-        let parent = p.parent().unwrap_or(Path::new("."));
-        parent
-            .join(format!("{stem}_soundness.lean"))
-            .to_string_lossy()
-            .into_owned()
-    });
-
-    // 5. Write the scaffolded file.
-    fs::write(&out_path, &combined).unwrap_or_else(|e| {
-        eprintln!("error: cannot write {out_path}: {e}");
-        process::exit(1);
-    });
-    eprintln!("[scribe] wrote {out_path}");
-
-    // Scaffold-only mode: write the Lean file (still containing `sorry`) and stop.
-    if args.no_prove {
-        eprintln!("[scribe] --no-prove: scaffold written, skipping the proof loop");
-        println!("{out_path}");
-        return;
-    }
-
-    // 6. Run the proof loop (default). `scribe verify` only exits 0 once the
-    //    Lean kernel accepts the proof; pass --no-prove for scaffold-only.
-    eprintln!("[scribe] launching proof-pilot...");
-
-    let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
-    let system_prompt_path = resolve_system_prompt(args.system_prompt.as_deref());
-    let system_prompt = system_prompt_path.map(|path| {
-        fs::read_to_string(&path).unwrap_or_else(|e| {
-            eprintln!("error: cannot read system prompt {path}: {e}");
-            process::exit(1);
-        })
-    });
-
-    let backend = make_backend(
-        &args.backend,
-        args.model.clone(),
-        args.api_key.clone(),
-        args.base_url.clone(),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("error: {e}");
-        process::exit(1);
-    });
-    eprintln!("[scribe] backend: {}", backend.name());
-
-    let config = SessionConfig {
-        lean_file: out_path.clone(),
-        lake_dir: lake_dir.clone(),
-        max_iterations: args.max_iters,
-        system_prompt,
-        transcript: args.transcript.clone(),
-        use_lsp: args.lsp,
-        samples_per_iter: args.samples_per_iter,
-    };
-
-    let (result, journal) = session::run(&config, backend.as_ref());
-
-    // ── Post-session actions (mirror proof-pilot's main.rs) ──────────────────
-    // Save a versioned JSON transcript if requested.
-    if let Some(ref path) = args.save_transcript {
-        let mathlib_rev = transcript::read_mathlib_rev(&lake_dir);
-        match transcript::save(&journal, path, mathlib_rev) {
-            Ok(()) => eprintln!("[scribe] transcript saved to: {path}"),
-            Err(e) => eprintln!("[scribe] warning: could not save transcript: {e}"),
-        }
-    }
-
-    // Write NOTES.md when --notes is given (with or without a path), or
-    // automatically on a non-proven outcome.
-    let failed = matches!(
-        &result,
-        SessionResult::Exhausted { .. } | SessionResult::Failed(_)
-    );
-    match &args.notes {
-        Some(explicit) => {
-            let path = explicit
-                .clone()
-                .unwrap_or_else(|| format!("{out_path}.notes.md"));
-            write_notes(&journal, &path);
-        }
-        None if failed => write_notes(&journal, &format!("{out_path}.notes.md")),
-        None => {}
-    }
-
-    handle_session_result(result, &out_path);
-}
-
 /// scribe's notes style: point each guidance pattern at the proven gadgets in
 /// `lean/ZkGadgets/` (the worked-example corpus proof-pilot's generic guidance
 /// deliberately does not know about).
@@ -277,14 +135,7 @@ fn scribe_notes_style() -> NotesStyle {
     style
 }
 
-/// Render and write a NOTES.md debugging report from the session journal.
-fn write_notes(journal: &SessionJournal, path: &str) {
-    write_notes_with_extra(journal, path, None);
-}
-
-/// `write_notes`, with an optional extra Markdown section appended — used for
-/// the D2 source-constraint citations, which proof-pilot's generic notes
-/// renderer deliberately knows nothing about.
+/// Render session notes with optional source-constraint citations.
 fn write_notes_with_extra(journal: &SessionJournal, path: &str, extra: Option<String>) {
     let mut md = render_notes_styled(journal, &scribe_notes_style());
     if let Some(extra) = extra {
@@ -389,7 +240,7 @@ const DEMO_STAGE_LABELS: [&str; 4] = [
 /// Exit codes: 2 = REFUTED (counterexample found — that is the alarm),
 /// 0 = SURVIVED (budget exhausted without one), 1 = infrastructure error.
 pub fn run_refute(args: RefuteArgs) {
-    let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
+    let gadget = circuit_ir::load_toml_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
         eprintln!("error: cannot load gadget {}: {e}", args.gadget);
         process::exit(1);
     });
@@ -858,40 +709,17 @@ fn run_demo_verify(lake_dir: &str) {
 fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
     eprintln!("[scribe demo --live] building fresh scaffold from bundled assets...");
 
-    // Use the halva-range-check extracted.lean as the demo Halva output.
-    // Resolve via $SCRIBE_EXAMPLES_DIR so this works from the installed image
-    // (WORKDIR /workspace) as well as from the repo root.
     let examples_dir = resolve_examples_dir();
-    let halva_content_path = format!("{examples_dir}/halva-range-check/extracted.lean");
-    let spec_file_path = format!("{examples_dir}/halva-range-check/spec.lean");
-
-    let halva_content = fs::read_to_string(&halva_content_path).unwrap_or_else(|e| {
-        eprintln!(
-            "error: cannot read bundled demo asset {halva_content_path}: {e}\n\
-             Set $SCRIBE_EXAMPLES_DIR or run from the scribe repo root."
-        );
+    let gadget_path = format!("{examples_dir}/range-check/gadget.toml");
+    let gadget = circuit_ir::load_toml_file(Path::new(&gadget_path)).unwrap_or_else(|e| {
+        eprintln!("error: cannot load bundled demo asset {gadget_path}: {e}");
         process::exit(1);
     });
-
-    let halva = parse_halva_output(&halva_content).unwrap_or_else(|e| {
-        eprintln!("error: failed to parse bundled Halva output: {e}");
+    let combined = lean_emit::emit_lean(&gadget).unwrap_or_else(|e| {
+        eprintln!("error: cannot emit range-check scaffold: {e}");
         process::exit(1);
     });
-
-    let snippet = fs::read_to_string(&spec_file_path).unwrap_or_else(|e| {
-        eprintln!(
-            "error: cannot read bundled spec {spec_file_path}: {e}\n\
-             Set $SCRIBE_EXAMPLES_DIR or run from the scribe repo root."
-        );
-        process::exit(1);
-    });
-
-    // The live demo writes into scribe's own lake project, so the gate is
-    // always available there.
-    let combined = scaffold_raw(&halva, &snippet, true);
-
-    // Write a temporary output file inside the lake dir.
-    let out_path = format!("{lake_dir}/ZkGadgets/HalvaRangeCheckLive.lean");
+    let out_path = format!("{lake_dir}/ZkGadgets/RangeCheckLive.lean");
     fs::write(&out_path, &combined).unwrap_or_else(|e| {
         eprintln!("error: cannot write live scaffold {out_path}: {e}");
         process::exit(1);

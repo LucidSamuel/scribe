@@ -9,11 +9,9 @@ members = [
     "crates/oracle-lean",
     "crates/oracle-differential",
     "crates/scribe-macros",
-    "crates/gadget-ir",
     "crates/lean-emit",
     "crates/proof-pilot",
     "crates/bench",
-    "crates/halva-bridge",
     "crates/scribe-cli",
 ]
 

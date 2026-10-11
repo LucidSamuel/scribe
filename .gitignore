@@ -26,18 +26,10 @@ benchmark/results/
 prompts/*
 !prompts/lean-prover.md
 !prompts/lean-refuter.md
-!prompts/golf-prover.md
 
-# zkGolf per-challenge state + attempt journals (scribe golf)
-golf/
+# Local notes and archived research checkouts (not active product inputs).
 NOTES.md
-
-# zkGolf corpus: vendored external repos + harvested submissions (regenerate
-# with `git clone` per docs/clean-playbook.md and `scripts/harvest.sh`).
-# Anchored to the specific vendored subdirs: /corpus/circuits and /corpus/msm
-# are versioned first-class corpora (roadmap v2.1, locked decision 5), and a
-# bare `corpus/` also swallowed lean/ZkGadgets/Corpus on case-insensitive
-# filesystems.
+golf/
 /corpus/clean/
 /corpus/submissions/
 /corpus/zk-golf-challenges/
@@ -47,3 +39,9 @@ NOTES.md
 
 # Environment
 .env
+
+# Internal planning; never include in public commits.
+/.local/
+
+# Python validation bytecode.
+__pycache__/
