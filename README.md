@@ -137,6 +137,17 @@ The prover runs first (a kernel-accepted proof settles the question — no count
 
 The exit codes are stable and documented so third parties can script `scribe judge` in their own CI.
 
+Completed judge proofs and refutations are preserved under
+`lean/ZkGadgets/Evidence/` (or the selected Lake project's equivalent), with
+filenames bound to the circuit and artifact contents. Commit the printed evidence
+path; incomplete attempts stay in the ignored `Bench/` directory. Cache records
+point to the preserved artifact, so later attempts do not overwrite its evidence.
+
+`check` and `judge` report `ValidationSkipped` when a circuit corpus exists but
+their acceptance procedure has not been measured. The historical `LeanOracle`
+corpus report measures a different pipeline and is not automatically applied to
+these commands. Use `scribe corpus validate --dry-run` to inspect that report.
+
 **Best-of-n sampling.** `--samples-per-iter K` (also on `refute` and `proof-pilot`) fires K attempts per iteration and lets the kernel filter: candidates are deduplicated, tried shortest-first, and the first to build wins. Parallel sampling is soundness-free — a wrong candidate costs a build, never a false acceptance — and the transcript records every candidate plus the acceptance index, so `--replay` determinism is preserved.
 
 ### `scribe demo`

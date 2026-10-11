@@ -358,6 +358,29 @@ const EXIT_UNDETERMINED: i32 = 1;
 const EXIT_UNSOUND: i32 = 2;
 const EXIT_INFRA: i32 = 3;
 
+/// Publish completed evidence outside ignored scratch space. Content-addressed
+/// names keep a later run from overwriting a proof already referenced by a cache
+/// record. The caller binds and audits this final path before recording it.
+fn persist_judge_evidence(
+    lake_dir: &str,
+    scratch: &str,
+    fingerprint: &str,
+    verdict: cache::CachedVerdict,
+) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = fs::read(scratch)?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let kind = match verdict {
+        cache::CachedVerdict::Sound => "Prove",
+        cache::CachedVerdict::Unsound => "Refute",
+    };
+    let dir = Path::new(lake_dir).join("ZkGadgets/Evidence");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{kind}{fingerprint}_{digest}.lean"));
+    fs::write(&path, bytes)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Prove AND attack: the dual-sided verdict.
 ///
 /// Prover first — a kernel-accepted proof settles the question (no
@@ -482,6 +505,12 @@ pub fn run_judge(args: JudgeArgs) {
     match prove_result {
         SessionResult::Proven { iterations } => {
             eprintln!("[scribe judge] kernel accepted a proof in {iterations} iteration(s)");
+            let prove_path =
+                persist_judge_evidence(&lake_dir, &prove_path, &fp, cache::CachedVerdict::Sound)
+                    .unwrap_or_else(|e| {
+                        eprintln!("[scribe judge] cannot preserve proof evidence: {e}");
+                        process::exit(EXIT_INFRA);
+                    });
             // Bind the artifact to this IR before caching: the probe
             // re-checks with the kernel that the proved declaration has
             // exactly the regenerated statement, audits its axioms, and runs
@@ -580,6 +609,12 @@ pub fn run_judge(args: JudgeArgs) {
                 "[scribe judge] ⚠ kernel-checked counterexample found in {iterations} \
                  iteration(s) at p = {prime}"
             );
+            let refute_path =
+                persist_judge_evidence(&lake_dir, &refute_path, &fp, cache::CachedVerdict::Unsound)
+                    .unwrap_or_else(|e| {
+                        eprintln!("[scribe judge] cannot preserve refutation evidence: {e}");
+                        process::exit(EXIT_INFRA);
+                    });
             match crate::check::bind_and_audit(
                 &gadget,
                 &refute_path,
@@ -765,6 +800,64 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completed_evidence_survives_git_add_and_later_scratch_runs() {
+        let dir = std::env::temp_dir().join(format!(
+            "scribe-evidence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let lake = dir.join("lean");
+        let scratch = lake.join("ZkGadgets/Bench/Judge.lean");
+        fs::create_dir_all(scratch.parent().unwrap()).unwrap();
+        fs::write(dir.join(".gitignore"), include_str!("../../../.gitignore")).unwrap();
+        let git = |args: &[&str]| {
+            let result = process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            result.stdout
+        };
+        git(&["init", "-q"]);
+        for kind in [cache::CachedVerdict::Sound, cache::CachedVerdict::Unsound] {
+            let original = format!("-- completed {kind:?} evidence\n");
+            fs::write(&scratch, &original).unwrap();
+            let evidence = persist_judge_evidence(
+                lake.to_str().unwrap(),
+                scratch.to_str().unwrap(),
+                "abc123",
+                kind,
+            )
+            .unwrap();
+            fs::write(&scratch, "-- a subsequent attempt\n").unwrap();
+            let later = persist_judge_evidence(
+                lake.to_str().unwrap(),
+                scratch.to_str().unwrap(),
+                "abc123",
+                kind,
+            )
+            .unwrap();
+            assert_ne!(evidence, later);
+            assert_eq!(fs::read_to_string(&evidence).unwrap(), original);
+            git(&["add", "."]);
+            let relative = Path::new(&evidence).strip_prefix(&dir).unwrap();
+            let staged = git(&["show", &format!(":{}", relative.display())]);
+            assert_eq!(staged, original.as_bytes());
+        }
+        let tracked = String::from_utf8(git(&["ls-files"])).unwrap();
+        assert!(!tracked.contains("Bench/"));
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Confirm that the dry-run demo produces output with the gadget description
     /// and all four stage labels. No Lean / API key required — this runs in CI.
