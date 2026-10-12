@@ -1,21 +1,20 @@
-//! Orchestration logic for `scribe verify`, `scribe demo`, and `scribe refute`.
+//! Orchestration logic for `scribe demo`, `scribe judge`, and `scribe refute`.
 
 use std::fs;
 use std::path::Path;
 use std::process;
 
-use halva_bridge::{parse_halva_output, scaffold_raw, scaffold_soundness, SpecConfig};
 use proof_pilot::backend::make_backend;
 use proof_pilot::journal::SessionJournal;
 use proof_pilot::notes::{render_notes_styled, NotesStyle};
 use proof_pilot::session::{self, SessionConfig, SessionResult};
-use proof_pilot::transcript;
 
+use crate::cache;
+use crate::citations::SourceCitations;
 use crate::demo_cmd::DemoArgs;
-use crate::extract;
 use crate::judge_cmd::JudgeArgs;
 use crate::refute_cmd::RefuteArgs;
-use crate::verify_cmd::VerifyArgs;
+use crate::verdict;
 
 // ── Default paths / environment ──────────────────────────────────────────────
 
@@ -74,7 +73,7 @@ fn resolve_prompt_from(
 }
 
 /// Resolve the lake dir: explicit `--lake-dir` → `$LAKE_DIR` → `lean`.
-fn resolve_lake_dir(explicit: Option<&str>) -> String {
+pub(crate) fn resolve_lake_dir(explicit: Option<&str>) -> String {
     resolve_dir(explicit, std::env::var("LAKE_DIR").ok(), "lean")
 }
 
@@ -92,144 +91,6 @@ fn resolve_dir(explicit: Option<&str>, env: Option<String>, default: &str) -> St
         .map(str::to_string)
         .or(env)
         .unwrap_or_else(|| default.to_string())
-}
-
-// ── scribe verify ────────────────────────────────────────────────────────────
-
-pub fn run_verify(args: VerifyArgs) {
-    // 1. Extraction phase.
-    let halva_content = if let Some(ref path) = args.halva_output {
-        extract::from_halva_file(path)
-    } else if let Some(ref dir) = args.circuit {
-        extract::from_circuit_project(dir)
-    } else {
-        unreachable!("main already checks that one of --halva-output / --circuit is set");
-    };
-
-    // 2. Parse the Halva output.
-    let halva = parse_halva_output(&halva_content).unwrap_or_else(|e| {
-        eprintln!("error: failed to parse Halva output: {e}");
-        process::exit(1);
-    });
-    eprintln!(
-        "[scribe] parsed namespace: {}, meets_constraints: found",
-        halva.namespace
-    );
-
-    // 3. Scaffold the combined Lean file.
-    let combined = if let Some(ref snippet_path) = args.spec_file {
-        let snippet = fs::read_to_string(snippet_path).unwrap_or_else(|e| {
-            eprintln!("error: cannot read --spec-file {snippet_path}: {e}");
-            process::exit(1);
-        });
-        scaffold_raw(&halva, &snippet, !args.no_audit_gate)
-    } else if let Some(ref spec_body) = args.spec {
-        let config = SpecConfig {
-            spec_body: spec_body.clone(),
-            extra_imports: args.extra_imports.clone(),
-            audit_gate: !args.no_audit_gate,
-        };
-        scaffold_soundness(&halva, &config)
-    } else {
-        eprintln!("error: one of --spec or --spec-file is required");
-        process::exit(1);
-    };
-
-    // 4. Determine output path.
-    let out_path = args.output.clone().unwrap_or_else(|| {
-        let src = args
-            .halva_output
-            .as_deref()
-            .or(args.circuit.as_deref())
-            .unwrap_or("output");
-        let p = Path::new(src);
-        let stem = p.file_stem().unwrap_or_default().to_string_lossy();
-        let parent = p.parent().unwrap_or(Path::new("."));
-        parent
-            .join(format!("{stem}_soundness.lean"))
-            .to_string_lossy()
-            .into_owned()
-    });
-
-    // 5. Write the scaffolded file.
-    fs::write(&out_path, &combined).unwrap_or_else(|e| {
-        eprintln!("error: cannot write {out_path}: {e}");
-        process::exit(1);
-    });
-    eprintln!("[scribe] wrote {out_path}");
-
-    // Scaffold-only mode: write the Lean file (still containing `sorry`) and stop.
-    if args.no_prove {
-        eprintln!("[scribe] --no-prove: scaffold written, skipping the proof loop");
-        println!("{out_path}");
-        return;
-    }
-
-    // 6. Run the proof loop (default). `scribe verify` only exits 0 once the
-    //    Lean kernel accepts the proof; pass --no-prove for scaffold-only.
-    eprintln!("[scribe] launching proof-pilot...");
-
-    let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
-    let system_prompt_path = resolve_system_prompt(args.system_prompt.as_deref());
-    let system_prompt = system_prompt_path.map(|path| {
-        fs::read_to_string(&path).unwrap_or_else(|e| {
-            eprintln!("error: cannot read system prompt {path}: {e}");
-            process::exit(1);
-        })
-    });
-
-    let backend = make_backend(
-        &args.backend,
-        args.model.clone(),
-        args.api_key.clone(),
-        args.base_url.clone(),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("error: {e}");
-        process::exit(1);
-    });
-    eprintln!("[scribe] backend: {}", backend.name());
-
-    let config = SessionConfig {
-        lean_file: out_path.clone(),
-        lake_dir: lake_dir.clone(),
-        max_iterations: args.max_iters,
-        system_prompt,
-        transcript: args.transcript.clone(),
-        use_lsp: args.lsp,
-        samples_per_iter: args.samples_per_iter,
-    };
-
-    let (result, journal) = session::run(&config, backend.as_ref());
-
-    // ── Post-session actions (mirror proof-pilot's main.rs) ──────────────────
-    // Save a versioned JSON transcript if requested.
-    if let Some(ref path) = args.save_transcript {
-        let mathlib_rev = transcript::read_mathlib_rev(&lake_dir);
-        match transcript::save(&journal, path, mathlib_rev) {
-            Ok(()) => eprintln!("[scribe] transcript saved to: {path}"),
-            Err(e) => eprintln!("[scribe] warning: could not save transcript: {e}"),
-        }
-    }
-
-    // Write NOTES.md when --notes is given (with or without a path), or
-    // automatically on a non-proven outcome.
-    let failed = matches!(
-        &result,
-        SessionResult::Exhausted { .. } | SessionResult::Failed(_)
-    );
-    match &args.notes {
-        Some(explicit) => {
-            let path = explicit
-                .clone()
-                .unwrap_or_else(|| format!("{out_path}.notes.md"));
-            write_notes(&journal, &path);
-        }
-        None if failed => write_notes(&journal, &format!("{out_path}.notes.md")),
-        None => {}
-    }
-
-    handle_session_result(result, &out_path);
 }
 
 /// scribe's notes style: point each guidance pattern at the proven gadgets in
@@ -274,9 +135,12 @@ fn scribe_notes_style() -> NotesStyle {
     style
 }
 
-/// Render and write a NOTES.md debugging report from the session journal.
-fn write_notes(journal: &SessionJournal, path: &str) {
-    let md = render_notes_styled(journal, &scribe_notes_style());
+/// Render session notes with optional source-constraint citations.
+fn write_notes_with_extra(journal: &SessionJournal, path: &str, extra: Option<String>) {
+    let mut md = render_notes_styled(journal, &scribe_notes_style());
+    if let Some(extra) = extra {
+        md.push_str(&extra);
+    }
     match fs::write(path, md) {
         Ok(()) => eprintln!("[scribe] notes written to: {path}"),
         Err(e) => eprintln!("[scribe] warning: could not write notes: {e}"),
@@ -292,6 +156,10 @@ fn handle_session_result(result: SessionResult, lean_file: &str) {
                 eprintln!("[scribe] proof complete in {iterations} iteration(s)");
             }
             println!("PROVEN: {lean_file}");
+            println!(
+                "{}",
+                verdict::accept_line(&format!("kernel-accepted proof at {lean_file}"))
+            );
         }
         SessionResult::Exhausted {
             iterations,
@@ -299,6 +167,12 @@ fn handle_session_result(result: SessionResult, lean_file: &str) {
         } => {
             eprintln!("[scribe] gave up after {iterations} iteration(s)");
             eprintln!("last build error:\n{last_error}");
+            println!(
+                "{}",
+                verdict::undetermined_line(&format!(
+                    "no kernel-accepted proof within {iterations} iteration(s) for {lean_file}"
+                ))
+            );
             process::exit(1);
         }
         SessionResult::Failed(msg) => {
@@ -331,10 +205,11 @@ terms = [{ coeff = "1", vars = [1, 1] }, { coeff = "-1", vars = [1] }]
 
 const DEMO_SCAFFOLD_SNIPPET: &str = r#"-- Generated Lean 4 scaffold (lean-emit → sorry stub)
 theorem range_check_8bit_sound
-    (x : ZMod p) (bits : Fin 8 → ZMod p)
+    (x b0 b1 b2 b3 b4 b5 b6 b7 : ZMod p)
     (hp : p > 256)
-    (h_bit : ∀ i : Fin 8, bits i * (bits i - 1) = 0)
-    (h_decomp : (∑ i : Fin 8, bits i * (2 : ZMod p) ^ (i : ℕ)) = x) :
+    (h_bit_0 : b0 * b0 - b0 = 0)
+    -- ... h_bit_1 through h_bit_7, one per wire
+    (h_decomposition : b0 + 2 * b1 + 4 * b2 + ⋯ + 128 * b7 - x = 0) :
     ZMod.val x < 256 := by
   sorry  -- ← proof-pilot will fill this in
 
@@ -365,7 +240,7 @@ const DEMO_STAGE_LABELS: [&str; 4] = [
 /// Exit codes: 2 = REFUTED (counterexample found — that is the alarm),
 /// 0 = SURVIVED (budget exhausted without one), 1 = infrastructure error.
 pub fn run_refute(args: RefuteArgs) {
-    let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
+    let gadget = circuit_ir::load_toml_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
         eprintln!("error: cannot load gadget {}: {e}", args.gadget);
         process::exit(1);
     });
@@ -444,6 +319,12 @@ pub fn run_refute(args: RefuteArgs) {
                  the counterexample is in the proof of {out_path}"
             );
             println!("REFUTED: {out_path}");
+            println!(
+                "{}",
+                verdict::reject_line(&format!(
+                    "kernel-checked counterexample at {out_path} (p = {prime})"
+                ))
+            );
             process::exit(2);
         }
         SessionResult::Exhausted { iterations, .. } => {
@@ -452,6 +333,13 @@ pub fn run_refute(args: RefuteArgs) {
                  at p = {prime} (evidence, not proof, of soundness)"
             );
             println!("SURVIVED: {}", args.gadget);
+            println!(
+                "{}",
+                verdict::undetermined_line(&format!(
+                    "spec survived {iterations} refutation attempt(s) at p = {prime} — \
+                     evidence, not proof"
+                ))
+            );
         }
         SessionResult::Failed(msg) => {
             eprintln!("[scribe] fatal error: {msg}");
@@ -470,6 +358,29 @@ const EXIT_UNDETERMINED: i32 = 1;
 const EXIT_UNSOUND: i32 = 2;
 const EXIT_INFRA: i32 = 3;
 
+/// Publish completed evidence outside ignored scratch space. Content-addressed
+/// names keep a later run from overwriting a proof already referenced by a cache
+/// record. The caller binds and audits this final path before recording it.
+fn persist_judge_evidence(
+    lake_dir: &str,
+    scratch: &str,
+    fingerprint: &str,
+    verdict: cache::CachedVerdict,
+) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = fs::read(scratch)?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let kind = match verdict {
+        cache::CachedVerdict::Sound => "Prove",
+        cache::CachedVerdict::Unsound => "Refute",
+    };
+    let dir = Path::new(lake_dir).join("ZkGadgets/Evidence");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{kind}{fingerprint}_{digest}.lean"));
+    fs::write(&path, bytes)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Prove AND attack: the dual-sided verdict.
 ///
 /// Prover first — a kernel-accepted proof settles the question (no
@@ -477,12 +388,66 @@ const EXIT_INFRA: i32 = 3;
 /// or two, so this order minimizes expected cost. Only when proving exhausts
 /// its budget does the adversarial refuter run.
 pub fn run_judge(args: JudgeArgs) {
-    let gadget = gadget_ir::load_gadget_file(Path::new(&args.gadget)).unwrap_or_else(|e| {
+    // Same loader as `scribe check` — the two commands must agree on
+    // provenance stamping or their fingerprints diverge and the cache never
+    // hits across them.
+    let gadget = crate::check::load_ir(&args.gadget).unwrap_or_else(|e| {
         eprintln!("error: cannot load gadget {}: {e}", args.gadget);
         process::exit(EXIT_INFRA);
     });
 
     let lake_dir = resolve_lake_dir(args.lake_dir.as_deref());
+
+    // ── Fingerprint cache (D4): an unchanged circuit re-uses its committed
+    // kernel-checked artifact and never calls a model. A hit requires the
+    // artifact AND the proof environment to match record time. ──────────────
+    let fp = cache::fingerprint(&gadget);
+    let cache_dir = cache::default_dir();
+    if !args.no_cache {
+        if let Some(rec) = cache::lookup(&cache_dir, &fp) {
+            match cache::verify_hit(&rec, &lake_dir) {
+                Ok(()) => {
+                    eprintln!(
+                        "[scribe judge] cache HIT {} → {} (kernel-checked, recorded by {})",
+                        cache::short(&fp),
+                        rec.artifact,
+                        rec.recorded_by
+                    );
+                    eprintln!(
+                        "[scribe judge] no model called — pass --no-cache to re-judge from scratch"
+                    );
+                    match rec.verdict {
+                        cache::CachedVerdict::Sound => {
+                            println!("SOUND: {}", rec.artifact);
+                            println!(
+                                "{}",
+                                verdict::accept_line(&format!(
+                                    "kernel-accepted proof at {} (cache hit {})",
+                                    rec.artifact,
+                                    cache::short(&fp)
+                                ))
+                            );
+                            process::exit(EXIT_SOUND);
+                        }
+                        cache::CachedVerdict::Unsound => {
+                            println!("UNSOUND: {}", rec.artifact);
+                            println!(
+                                "{}",
+                                verdict::reject_line(&format!(
+                                    "kernel-checked counterexample at {} (cache hit {})",
+                                    rec.artifact,
+                                    cache::short(&fp)
+                                ))
+                            );
+                            process::exit(EXIT_UNSOUND);
+                        }
+                    }
+                }
+                Err(why) => eprintln!("[scribe judge] ignoring cache record: {why}"),
+            }
+        }
+    }
+
     let sanitized: String = gadget
         .name
         .chars()
@@ -536,20 +501,77 @@ pub fn run_judge(args: JudgeArgs) {
         use_lsp: false,
         samples_per_iter: args.samples_per_iter,
     };
-    match session::run(&prove_config, backend.as_ref()).0 {
+    let (prove_result, prove_journal) = session::run(&prove_config, backend.as_ref());
+    match prove_result {
         SessionResult::Proven { iterations } => {
             eprintln!("[scribe judge] kernel accepted a proof in {iterations} iteration(s)");
+            let prove_path =
+                persist_judge_evidence(&lake_dir, &prove_path, &fp, cache::CachedVerdict::Sound)
+                    .unwrap_or_else(|e| {
+                        eprintln!("[scribe judge] cannot preserve proof evidence: {e}");
+                        process::exit(EXIT_INFRA);
+                    });
+            // Bind the artifact to this IR before caching: the probe
+            // re-checks with the kernel that the proved declaration has
+            // exactly the regenerated statement, audits its axioms, and runs
+            // C1. A verdict that cannot pass its own binding probe is not
+            // cached.
+            match crate::check::bind_and_audit(
+                &gadget,
+                &prove_path,
+                &lake_dir,
+                crate::check::BindTarget::Soundness,
+            ) {
+                Ok(audits) => match cache::record_verdict(
+                    &cache_dir,
+                    &gadget,
+                    cache::CachedVerdict::Sound,
+                    &prove_path,
+                    "judge",
+                    &lake_dir,
+                    None,
+                    audits,
+                ) {
+                    Ok(_) => eprintln!(
+                        "[scribe judge] verdict cached ({}) — commit {prove_path}; it is the evidence",
+                        cache::short(&fp)
+                    ),
+                    Err(e) => eprintln!("[scribe judge] warning: could not cache verdict: {e}"),
+                },
+                Err(why) => eprintln!(
+                    "[scribe judge] warning: proof accepted but not cached — binding probe \
+                     failed: {why}"
+                ),
+            }
             println!("SOUND: {prove_path}");
+            println!(
+                "{}",
+                verdict::accept_line(&format!("kernel-accepted proof at {prove_path}"))
+            );
             process::exit(EXIT_SOUND);
         }
         SessionResult::Failed(msg) => {
             eprintln!("[scribe judge] fatal error in prove phase: {msg}");
             process::exit(EXIT_INFRA);
         }
-        SessionResult::Exhausted { iterations, .. } => {
+        SessionResult::Exhausted {
+            iterations,
+            ref last_error,
+        } => {
             eprintln!(
                 "[scribe judge] no proof in {iterations} iteration(s) — \
                  escalating to the refuter"
+            );
+            // D2: translate the stall out of Lean vocabulary. Which circuit
+            // constraints do the failing hypotheses correspond to?
+            let cites = SourceCitations::from_ir(&gadget, &args.gadget);
+            if let Some(report) = cites.render_terminal(last_error) {
+                eprintln!("[scribe judge] {report}");
+            }
+            write_notes_with_extra(
+                &prove_journal,
+                &format!("{prove_path}.notes.md"),
+                cites.render_markdown(last_error),
             );
         }
     }
@@ -574,7 +596,7 @@ pub fn run_judge(args: JudgeArgs) {
 
     let refute_config = SessionConfig {
         lean_file: refute_path.clone(),
-        lake_dir,
+        lake_dir: lake_dir.clone(),
         max_iterations: args.refute_iters,
         system_prompt: read_prompt(resolve_refuter_prompt(None)),
         transcript: None,
@@ -587,7 +609,46 @@ pub fn run_judge(args: JudgeArgs) {
                 "[scribe judge] ⚠ kernel-checked counterexample found in {iterations} \
                  iteration(s) at p = {prime}"
             );
+            let refute_path =
+                persist_judge_evidence(&lake_dir, &refute_path, &fp, cache::CachedVerdict::Unsound)
+                    .unwrap_or_else(|e| {
+                        eprintln!("[scribe judge] cannot preserve refutation evidence: {e}");
+                        process::exit(EXIT_INFRA);
+                    });
+            match crate::check::bind_and_audit(
+                &gadget,
+                &refute_path,
+                &lake_dir,
+                crate::check::BindTarget::Refutation { prime },
+            ) {
+                Ok(audits) => match cache::record_verdict(
+                    &cache_dir,
+                    &gadget,
+                    cache::CachedVerdict::Unsound,
+                    &refute_path,
+                    "judge",
+                    &lake_dir,
+                    Some(prime),
+                    audits,
+                ) {
+                    Ok(_) => eprintln!(
+                        "[scribe judge] verdict cached ({}) — commit {refute_path}; it is the evidence",
+                        cache::short(&fp)
+                    ),
+                    Err(e) => eprintln!("[scribe judge] warning: could not cache verdict: {e}"),
+                },
+                Err(why) => eprintln!(
+                    "[scribe judge] warning: refutation accepted but not cached — binding \
+                     probe failed: {why}"
+                ),
+            }
             println!("UNSOUND: {refute_path}");
+            println!(
+                "{}",
+                verdict::reject_line(&format!(
+                    "kernel-checked counterexample at {refute_path} (p = {prime})"
+                ))
+            );
             process::exit(EXIT_UNSOUND);
         }
         SessionResult::Failed(msg) => {
@@ -600,6 +661,13 @@ pub fn run_judge(args: JudgeArgs) {
                  the spec's status is genuinely open at these budgets"
             );
             println!("UNDETERMINED: {}", args.gadget);
+            println!(
+                "{}",
+                verdict::undetermined_line(&format!(
+                    "neither proof ({} iters) nor refutation ({} iters) within budget",
+                    args.prove_iters, args.refute_iters
+                ))
+            );
             process::exit(EXIT_UNDETERMINED);
         }
     }
@@ -676,40 +744,17 @@ fn run_demo_verify(lake_dir: &str) {
 fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
     eprintln!("[scribe demo --live] building fresh scaffold from bundled assets...");
 
-    // Use the halva-range-check extracted.lean as the demo Halva output.
-    // Resolve via $SCRIBE_EXAMPLES_DIR so this works from the installed image
-    // (WORKDIR /workspace) as well as from the repo root.
     let examples_dir = resolve_examples_dir();
-    let halva_content_path = format!("{examples_dir}/halva-range-check/extracted.lean");
-    let spec_file_path = format!("{examples_dir}/halva-range-check/spec.lean");
-
-    let halva_content = fs::read_to_string(&halva_content_path).unwrap_or_else(|e| {
-        eprintln!(
-            "error: cannot read bundled demo asset {halva_content_path}: {e}\n\
-             Set $SCRIBE_EXAMPLES_DIR or run from the scribe repo root."
-        );
+    let gadget_path = format!("{examples_dir}/range-check/gadget.toml");
+    let gadget = circuit_ir::load_toml_file(Path::new(&gadget_path)).unwrap_or_else(|e| {
+        eprintln!("error: cannot load bundled demo asset {gadget_path}: {e}");
         process::exit(1);
     });
-
-    let halva = parse_halva_output(&halva_content).unwrap_or_else(|e| {
-        eprintln!("error: failed to parse bundled Halva output: {e}");
+    let combined = lean_emit::emit_lean(&gadget).unwrap_or_else(|e| {
+        eprintln!("error: cannot emit range-check scaffold: {e}");
         process::exit(1);
     });
-
-    let snippet = fs::read_to_string(&spec_file_path).unwrap_or_else(|e| {
-        eprintln!(
-            "error: cannot read bundled spec {spec_file_path}: {e}\n\
-             Set $SCRIBE_EXAMPLES_DIR or run from the scribe repo root."
-        );
-        process::exit(1);
-    });
-
-    // The live demo writes into scribe's own lake project, so the gate is
-    // always available there.
-    let combined = scaffold_raw(&halva, &snippet, true);
-
-    // Write a temporary output file inside the lake dir.
-    let out_path = format!("{lake_dir}/ZkGadgets/HalvaRangeCheckLive.lean");
+    let out_path = format!("{lake_dir}/ZkGadgets/RangeCheckLive.lean");
     fs::write(&out_path, &combined).unwrap_or_else(|e| {
         eprintln!("error: cannot write live scaffold {out_path}: {e}");
         process::exit(1);
@@ -755,6 +800,64 @@ fn run_demo_live(args: &DemoArgs, lake_dir: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completed_evidence_survives_git_add_and_later_scratch_runs() {
+        let dir = std::env::temp_dir().join(format!(
+            "scribe-evidence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let lake = dir.join("lean");
+        let scratch = lake.join("ZkGadgets/Bench/Judge.lean");
+        fs::create_dir_all(scratch.parent().unwrap()).unwrap();
+        fs::write(dir.join(".gitignore"), include_str!("../../../.gitignore")).unwrap();
+        let git = |args: &[&str]| {
+            let result = process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            result.stdout
+        };
+        git(&["init", "-q"]);
+        for kind in [cache::CachedVerdict::Sound, cache::CachedVerdict::Unsound] {
+            let original = format!("-- completed {kind:?} evidence\n");
+            fs::write(&scratch, &original).unwrap();
+            let evidence = persist_judge_evidence(
+                lake.to_str().unwrap(),
+                scratch.to_str().unwrap(),
+                "abc123",
+                kind,
+            )
+            .unwrap();
+            fs::write(&scratch, "-- a subsequent attempt\n").unwrap();
+            let later = persist_judge_evidence(
+                lake.to_str().unwrap(),
+                scratch.to_str().unwrap(),
+                "abc123",
+                kind,
+            )
+            .unwrap();
+            assert_ne!(evidence, later);
+            assert_eq!(fs::read_to_string(&evidence).unwrap(), original);
+            git(&["add", "."]);
+            let relative = Path::new(&evidence).strip_prefix(&dir).unwrap();
+            let staged = git(&["show", &format!(":{}", relative.display())]);
+            assert_eq!(staged, original.as_bytes());
+        }
+        let tracked = String::from_utf8(git(&["ls-files"])).unwrap();
+        assert!(!tracked.contains("Bench/"));
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Confirm that the dry-run demo produces output with the gadget description
     /// and all four stage labels. No Lean / API key required — this runs in CI.

@@ -34,22 +34,23 @@ Zero-knowledge circuits are notoriously hard to get right: a single under-constr
 > [!IMPORTANT]
 > The Lean kernel is the oracle, not the LLM. `proof-pilot` builds the Lake project and then compiles the exact target file. The real guarantee is an `#audit_axioms` gate compiled next to every theorem: it runs the kernel's own axiom tracking and **fails the build unless the proof's axiom set is a subset of `{propext, Classical.choice, Quot.sound}`**. So `sorry`, `admit`, `axiom`, or `native_decide` cannot survive — not even reached transitively through a dependency. Fast textual scans in `proof-pilot`, a pre-commit hook, and CI are a pre-filter; the axiom gate is the source of truth.
 
-Three properties make this trustworthy:
+The main assurance mechanisms are:
 
 - **Sound by construction.** Every proof in this repo is checked by the Lean 4 kernel, and an `#audit_axioms` gate next to each theorem runs the engine behind `#print axioms` at build time, rejecting anything that depends on more than the three standard axioms. That catches a transitive `sorryAx` (what `sorry`/`admit` elaborate to) or `native_decide`'s `ofReduceBool` reached through any dependency — which a textual grep cannot. See [`Audit.lean`](lean/ZkGadgets/Audit.lean).
-- **Specs audited, not just proofs.** A kernel-checked proof of a meaningless statement proves nothing, so a dual-sided **verdict engine** probes the statements themselves at build time: `#audit_uses` / `#audit_requires` (C1) fail the build on decorative or dropped hypotheses; `#audit_falsifiable` (C2) requires a kernel-checked refutation of the conclusion at a finite-model instantiation, killing vacuously-true specs; `#audit_satisfiable` (C3) requires a witness satisfying every constraint, killing impossible-antecedent specs. A theorem passing C1–C3 has demonstrated content: its constraints can hold, its conclusion can fail, and its side-conditions are load-bearing. `scribe refute` (C4) completes the dual side: an adversarial LLM loop attacks the spec itself, hunting for a kernel-checked counterexample — so a spec is only trusted after surviving the same class of refutation search that catches under-constrained circuits.
+- **Specs audited, not just proofs.** A kernel-checked proof of a meaningless statement proves nothing, so a dual-sided **verdict engine** probes the statements themselves at build time: `#audit_uses` / `#audit_requires` (C1) flag decorative or dropped hypotheses — written into a Lean file they fail the build; in the record/cache pipeline, *dropped* hypotheses are caught structurally by the kernel-checked binding probe (the statement regenerated from the IR carries every constraint hypothesis and must match definitionally), while `#audit_uses` runs as a reported, non-gating probe for *decorative* ones; `#audit_falsifiable` (C2) requires a kernel-checked refutation of the conclusion at a finite-model instantiation, killing vacuously-true specs; `#audit_satisfiable` (C3) requires a witness satisfying every constraint, killing impossible-antecedent specs. C2/C3 witnesses show that the tested constraints can hold and the conclusion can fail; C1 reports hypothesis use, which does not establish logical necessity or fidelity to the intended specification. `scribe refute` (C4) completes the dual side: an adversarial LLM loop attacks the spec itself, hunting for a kernel-checked counterexample — a checked counterexample refutes the precise claim, while surviving a bounded search remains inconclusive.
 - **Automated.** An LLM drives a closed feedback loop, edit the proof, compile, read the errors (or structured LSP goal states), repeat until the kernel accepts or the budget runs out.
-- **Real circuits.** The `halva-bridge` consumes actual Halva-style halo2 extraction output and proves soundness against a human-written specification.
+- **Real circuits.** `frontend-ragu` extracts Ragu constraints and checks its counts against the host framework; the resulting circuit claims can use the same verdict path as TOML inputs.
 
 ## How It Works
 
-scribe is a small Rust workspace. The pipeline runs IR → Lean scaffold → LLM proof loop → kernel-accepted `.lean`:
+scribe's core represents claims, acceptance oracles, and versioned positive/negative corpora. Every verdict includes its discrimination status. The circuit path is:
 
-1. **`gadget-ir`**: a minimal IR for polynomial constraints over a prime field (TOML → struct).
-2. **`lean-emit`**: reads the IR and emits a Lean 4 file with the theorem statement and a `sorry`.
-3. **`proof-pilot`**: drives an LLM backend in a loop: edit the proof → compile the target file → read the errors → repeat. Stops when the kernel accepts or the budget is exhausted.
-4. **`halva-bridge`**: combines a Halva halo2 extraction with a user specification and (optionally) sends the resulting theorem to `proof-pilot`.
-5. **`scribe-cli`**: the top-level `scribe` binary, with `verify`, `init`, and `demo` subcommands.
+1. **`frontend-toml` / `frontend-ragu`** extract constraints into **`circuit-ir`**.
+2. **`lean-emit`** emits proof or refutation scaffolds with audit gates.
+3. **`proof-pilot`** runs the bounded proof-editing loop; **`oracle-lean`** reports a proof, a counterexample, or an undetermined result.
+4. **`scribe-cli`** exposes the workflow, artifact binding, cache and corpus commands.
+
+A second adapter, **`oracle-differential`**, measures finite MSM comparisons; this evidence is not a universal equivalence proof. See [architecture](docs/architecture.md) for all crate boundaries.
 
 ## Getting Started
 
@@ -61,15 +62,12 @@ The published image bundles the Rust binaries, the Lean toolchain, and pre-cache
 # five-minute demo: dry-run the range-check gadget proof (no API key needed)
 docker run --rm ghcr.io/lucidsamuel/scribe:latest scribe demo
 
-# verify a Halva extraction against a user spec (requires ANTHROPIC_API_KEY)
+# judge a circuit claim (requires an API backend)
 docker run --rm \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   -v "$(pwd)":/workspace \
   ghcr.io/lucidsamuel/scribe:latest \
-  scribe verify \
-    --halva-output /workspace/extracted.lean \
-    --spec-file    /workspace/spec.lean \
-    --output       /workspace/Proof.lean
+  scribe judge --gadget /workspace/examples/range-check/gadget.toml --backend anthropic
 ```
 
 See the [Docker](#docker) section for tags and local builds.
@@ -92,37 +90,19 @@ lake build              # should exit 0 with no warnings — every gadget proof 
 ```
 
 > [!TIP]
-> Running `scribe`, `proof-pilot`, or `halva-bridge` against a live model needs a backend. The default backend shells out to the `claude` CLI; pass `--backend openai|anthropic|...` plus `--api-key` / `--model` to use a hosted API instead. Run any binary with `--help` for the full flag list.
+> Running `scribe` or `proof-pilot` against a live model needs a backend. The default backend shells out to the `claude` CLI; pass `--backend openai|anthropic|...` plus `--api-key` / `--model` to use a hosted API instead. Run `scribe --help` or invoke `proof-pilot` without arguments for usage.
 
 ## Usage
 
-### `scribe verify`
+### `scribe check`
 
-The single-command path from a Halva extraction (or extractor project) to a kernel-checked proof.
+Validate a TOML/JSON circuit claim, elaborate its statement, and look for bound
+proof evidence. Static checks without evidence report UNDETERMINED, not SOUND.
 
 ```sh
-# from a pre-extracted Halva .lean file + a user spec snippet
-scribe verify \
-  --halva-output extracted.lean \
-  --spec-file    spec.lean \
-  --output       lean/ZkGadgets/MyCircuit.lean \
-  [--backend claude|openai|...] \
-  [--model MODEL] \
-  [--max-iters N] \
-  [--notes NOTES.md] \
-  [--save-transcript session.json]
-
-# from a Halva extractor project directory (runs the extractor, then verifies)
-scribe verify \
-  --circuit   path/to/halva-extractor-project \
-  --spec-file spec.lean \
-  --output    lean/ZkGadgets/MyCircuit.lean
+scribe check --gadget examples/range-check/gadget.toml
+scribe corpus validate --dry-run
 ```
-
-Both forms run `proof-pilot` by default and exit `0` only when the Lean kernel accepts the proof. The output `.lean` file is the artifact, and every generated scaffold carries an `#audit_axioms` gate next to its theorem — so the file only ever compiles once the proof is real and rests solely on the three standard axioms. Pass `--no-prove` to emit only the scaffold (which still contains `sorry`, and therefore fails the build until proven) and skip the proof loop. The gate's command is provided by scribe's own `lean/` project; pass `--no-audit-gate` if the scaffold targets a Lake project without the ZkGadgets library (at the cost of the unproven-scaffold-is-red guarantee).
-
-> [!NOTE]
-> **Scope.** `scribe verify --circuit` operates on a Halva *extractor project* — you still author the small extractor program that runs against your halo2 circuit. scribe does not read raw halo2 Rust source directly. The chain is: extractor-project output → Lean scaffold → LLM proof loop → kernel-accepted `.lean`.
 
 ### `scribe refute`
 
@@ -157,22 +137,18 @@ The prover runs first (a kernel-accepted proof settles the question — no count
 
 The exit codes are stable and documented so third parties can script `scribe judge` in their own CI.
 
-**Best-of-n sampling.** `--samples-per-iter K` (also on `verify`, `refute`, and `proof-pilot`) fires K attempts per iteration and lets the kernel filter: candidates are deduplicated, tried shortest-first, and the first to build wins. Parallel sampling is soundness-free — a wrong candidate costs a build, never a false acceptance — and the transcript records every candidate plus the acceptance index, so `--replay` determinism is preserved.
+Completed judge proofs and refutations are preserved under
+`lean/ZkGadgets/Evidence/` (or the selected Lake project's equivalent), with
+filenames bound to the circuit and artifact contents. Commit the printed evidence
+path; incomplete attempts stay in the ignored `Bench/` directory. Cache records
+point to the preserved artifact, so later attempts do not overwrite its evidence.
 
-### `scribe init`
+`check` and `judge` report `ValidationSkipped` when a circuit corpus exists but
+their acceptance procedure has not been measured. The historical `LeanOracle`
+corpus report measures a different pipeline and is not automatically applied to
+these commands. Use `scribe corpus validate --dry-run` to inspect that report.
 
-Generates the editable Halva extractor project that `scribe verify --circuit` expects.
-
-```sh
-scribe init \
-  --circuit path/to/raw-halo2-circuit-crate \
-  --output  path/to/halva-extractor-project \
-  [--name MyCircuit] \
-  [--halva-git https://github.com/<owner>/<repo>.git] \
-  [--halva-rev REV]
-```
-
-The generated project contains `Cargo.toml`, `src/main.rs`, and a README. Fill in `src/main.rs` to instantiate your circuit, call Halva, and print the extracted Lean to stdout — then pass that project to `scribe verify --circuit`. If `--halva-git` is omitted, the generated `Cargo.toml` leaves the Halva dependency as an explicit TODO rather than guessing a repository URL.
+**Best-of-n sampling.** `--samples-per-iter K` (also on `refute` and `proof-pilot`) fires K attempts per iteration and lets the kernel filter: candidates are deduplicated, tried shortest-first, and the first to build wins. Parallel sampling is soundness-free — a wrong candidate costs a build, never a false acceptance — and the transcript records every candidate plus the acceptance index, so `--replay` determinism is preserved.
 
 ### `scribe demo`
 
@@ -213,22 +189,22 @@ cargo run -p proof-pilot -- lean/ZkGadgets/AutoProof.lean \
 
 See [`transcripts/poseidon-sbox.md`](transcripts/poseidon-sbox.md) for a session that closes the Poseidon S-box proof in 2 iterations.
 
-## The Halva Bridge
+## Archived integrations
 
-`halva-bridge` turns a real halo2 extraction into a proven soundness theorem. It parses Halva's `meets_constraints` output, merges in a user `Spec` + `soundness` theorem, and hands the result to `proof-pilot`.
+The zkGolf command, harvesting scripts and competition playbooks, Halva runtime
+bridge (`scribe verify` / `scribe init`), and `gadget-ir` compatibility crate were
+retired on 2026-10-09. The current CLI uses `circuit-ir` directly. `demo --live`
+uses the same range-check TOML input as the dry-run and checked demo.
 
-```sh
-cargo run -p halva-bridge -- examples/halva-range-check/extracted.lean \
-  --spec-file examples/halva-range-check/spec.lean \
-  --output    lean/ZkGadgets/HalvaRangeCheck.lean
-```
+The complete prior implementation is preserved locally on
+`codex/archive-deferred-2026-10-09`, at commit
+`3584bd30031acf653e90947c485385c2e2b40f08`. It is also recoverable from Git
+history. The three Halva Lean proofs and extraction/spec fixtures remain as
+regression evidence; no Halva executable or upstream merge is needed to check them.
 
-Use `--prove` to launch `proof-pilot` after scaffolding. Structured specs can use `--spec <expr>` with repeatable `--extra-import <module>` flags; run `halva-bridge --help` for the backend and proof-loop options.
-
-The same flow scales to harder circuits. `examples/halva-fibonacci/` and `examples/halva-binary-number/` are real extractions (`cargo run --example fib` / `--example scroll-binary-number` in the Halva repo) bridged to proven theorems — exercising **copy constraints** and **multi-gate** circuits respectively, neither of which the range-check example touches.
-
-> [!NOTE]
-> **Inherited-model fidelity.** Halva's emitted `Circuit.isValid` preamble defines `multiplicative_generator P g := g ^ P = 1`, which is mathematically wrong: Fermat's little theorem gives `g ^ P = g` in `ZMod P`, so the predicate forces `g = 1` and can never hold of an actual generator. This is harmless for the proofs here — they destructure `meets_constraints` and never load `isValid`'s generator field — but it is a standing example of why "valid circuit" preambles deserve their own scrutiny. The smell is pinned by a kernel-checked witness, [`RangeCheck.multiplicative_generator_forces_one`](lean/ZkGadgets/HalvaRangeCheck.lean), so it can neither silently disappear nor be silently relied upon. Worth an upstream report to Halva.
+[NethermindEth/Halva #10](https://github.com/NethermindEth/Halva/pull/10) is an
+open multiplicative-generator predicate fix, not lookup extraction. It is not a
+dependency of the current runtime.
 
 ## Proven Gadgets
 
@@ -248,7 +224,7 @@ Every theorem below is complete and kernel-checked (`lake build` is green, and e
 > [!NOTE]
 > **Scope — know what you proved.**
 > - **Edwards addition proves closure, not functional correctness.** Inputs on the curve + the gadget constraints imply the output is on the curve. That is necessary but not sufficient for "computes EC addition" — a buggy gadget could emit a *wrong* on-curve point. Full soundness would conclude `(x₃,y₃) = (x₁,y₁) + (x₂,y₂)` (or witness uniqueness); the nonzero-denominator hypotheses are also *assumed* rather than derived from Baby Jubjub's completeness. Both are documented in [`EdwardsAddition.lean`](lean/ZkGadgets/EdwardsAddition.lean) and tracked as future work.
-> - **Lookups and permutation arguments are not yet exercised.** Every Halva circuit proven here has `all_lookups = true` and `all_shuffles = true` stubbed trivially by the extractor — the theorems cover gate and copy constraints only. Lookup/permutation arguments are exactly where real halo2 soundness gets hard; they are the next frontier, not a solved problem.
+> - **Lookups and permutation arguments are not yet exercised.** Every Halva circuit proven here has `all_lookups = true` and `all_shuffles = true` stubbed trivially by the extractor — the theorems cover gate and copy constraints only. Lookup/permutation arguments are exactly where real halo2 soundness gets hard; these fixtures do not establish lookup/permutation soundness.
 
 ## Benchmark: ZKGadgetEval
 
@@ -271,7 +247,7 @@ Results so far (claude-sonnet-5, two full-suite runs: a 1-sample A/B + a 3-sampl
 
 The `ghcr.io/lucidsamuel/scribe` image is built on every push to `main` and on version tags (`.github/workflows/docker.yml`). It bundles:
 
-- Rust release binaries: `scribe`, `proof-pilot`, `halva-bridge`
+- Rust release binaries: `scribe`, `proof-pilot`
 - elan + the Lean toolchain pinned to `leanprover/lean4:v4.30.0-rc2`
 - pre-cached Mathlib oleans (~2.5 GB of the ~3.2 GB image)
 
@@ -289,19 +265,17 @@ Tags: `latest` (main branch), `sha-<commit>` (per-commit), `v<semver>` (releases
 ## Project Structure
 
 ```
-crates/
-  gadget-ir/       constraint system IR + TOML deserialization
-  lean-emit/       IR → Lean 4 scaffold with sorry
-  proof-pilot/     LLM proof loop (patcher, lean runner, session logging, transcript, replay)
-  halva-bridge/    Halva extraction + semantic specification bridge
-  scribe-cli/      top-level `scribe` binary (verify + init + demo)
-  bench/           ZKGadgetEval benchmark suite
-lean/ZkGadgets/    the proven theorems (Field + 8 gadgets)
-examples/          IR / extraction + spec inputs for every gadget
+crates/            verdict core, frontends, oracles, proof loop and CLI
+lean/ZkGadgets/    checked gadget proofs, audit commands and corpus artifacts
+corpus/            versioned circuit and MSM discrimination evidence
+benchmark/         suite manifests and recorded evaluation results
+examples/          circuit IR / extraction + specification inputs
 transcripts/       example proof-pilot sessions
-prompts/           system prompt(s) for the proof loop
-docs/              architecture.md, why.md
+prompts/           system prompts for proving and refutation
+docs/              architecture and v2.1 design records
 ```
+
+The complete crate inventory is in [architecture.md](docs/architecture.md).
 
 ## Documentation
 

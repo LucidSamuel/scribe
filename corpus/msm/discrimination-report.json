@@ -1,0 +1,10 @@
+{
+  "corpus_version": "msm-corpus-v1",
+  "negatives_caught": 2,
+  "negatives_total": 3,
+  "escaped": [
+    "msm-mutant-wide-window-skip-double"
+  ],
+  "positives_accepted": 1,
+  "positives_total": 1
+}

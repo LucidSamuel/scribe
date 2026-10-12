@@ -1,0 +1,76 @@
+{
+  "version": "polynomial-evaluation-v1",
+  "scope": "RS codeword uniqueness building block; not proximity gaps or Ragu protocol soundness",
+  "roots": [
+    {
+      "id": "evaluation_difference",
+      "prefix": "import Mathlib.Algebra.Polynomial.Roots\nimport Mathlib.Data.ZMod.Basic\nimport Mathlib.Algebra.Field.ZMod\nimport Mathlib.Tactic.NormNum\nimport ZkGadgets.Audit\nopen Polynomial\n",
+      "positive": "\u2200 {F : Type} [Field F] (p q : F[X]) (x : F), (p - q).eval x = p.eval x - q.eval x",
+      "negative": "\u2200 (p q : (ZMod 5)[X]) (x : ZMod 5), (p - q).eval x = p.eval x + q.eval x",
+      "leakage": "Mathlib contains an equivalent uniqueness theorem and constituent lemmas. Reference Scribe proof modules must not be imported. This is not a contamination-free benchmark.",
+      "validation": {
+        "positive": "Scribe.Protocol.evaluation_difference",
+        "negative_refutation": "Scribe.Protocol.Mutations.subtraction_as_addition"
+      }
+    },
+    {
+      "id": "difference_nonzero",
+      "prefix": "import Mathlib.Algebra.Polynomial.Roots\nimport Mathlib.Data.ZMod.Basic\nimport Mathlib.Algebra.Field.ZMod\nimport Mathlib.Tactic.NormNum\nimport ZkGadgets.Audit\nopen Polynomial\n",
+      "positive": "\u2200 {F : Type} [Field F] (p q : F[X]) (hne : p \u2260 q), p - q \u2260 0",
+      "negative": "\u2200 (p q : (ZMod 5)[X]), p - q \u2260 0",
+      "leakage": "Mathlib contains an equivalent uniqueness theorem and constituent lemmas. Reference Scribe proof modules must not be imported. This is not a contamination-free benchmark.",
+      "validation": {
+        "positive": "Scribe.Protocol.difference_nonzero",
+        "negative_refutation": "Scribe.Protocol.Mutations.dropped_nonzero_difference"
+      }
+    },
+    {
+      "id": "difference_degree",
+      "prefix": "import Mathlib.Algebra.Polynomial.Roots\nimport Mathlib.Data.ZMod.Basic\nimport Mathlib.Algebra.Field.ZMod\nimport Mathlib.Tactic.NormNum\nimport ZkGadgets.Audit\nopen Polynomial\n",
+      "positive": "\u2200 {F : Type} [Field F] (p q : F[X]), (p - q).natDegree \u2264 max p.natDegree q.natDegree",
+      "negative": "\u2200 (p q : (ZMod 5)[X]), (p - q).natDegree \u2264 min p.natDegree q.natDegree",
+      "leakage": "Mathlib contains an equivalent uniqueness theorem and constituent lemmas. Reference Scribe proof modules must not be imported. This is not a contamination-free benchmark.",
+      "validation": {
+        "positive": "Scribe.Protocol.difference_degree",
+        "negative_refutation": "Scribe.Protocol.Mutations.minimum_degree_bound"
+      }
+    },
+    {
+      "id": "agreement_is_root",
+      "prefix": "import Mathlib.Algebra.Polynomial.Roots\nimport Mathlib.Data.ZMod.Basic\nimport Mathlib.Algebra.Field.ZMod\nimport Mathlib.Tactic.NormNum\nimport ZkGadgets.Audit\nopen Polynomial\n",
+      "positive": "\u2200 {F : Type} [Field F] (p q : F[X]) (x : F) (h : p.eval x = q.eval x), (p - q).IsRoot x",
+      "negative": "\u2200 (p q : (ZMod 5)[X]) (x : ZMod 5), p.eval x = q.eval x \u2192 (p + q).IsRoot x",
+      "leakage": "Mathlib contains an equivalent uniqueness theorem and constituent lemmas. Reference Scribe proof modules must not be imported. This is not a contamination-free benchmark.",
+      "validation": {
+        "positive": "Scribe.Protocol.agreement_is_root",
+        "negative_refutation": "Scribe.Protocol.Mutations.agreement_sum_root"
+      }
+    },
+    {
+      "id": "sample_root_bound",
+      "prefix": "import Mathlib.Algebra.Polynomial.Roots\nimport Mathlib.Data.ZMod.Basic\nimport Mathlib.Algebra.Field.ZMod\nimport Mathlib.Tactic.NormNum\nimport ZkGadgets.Audit\nopen Polynomial\n",
+      "positive": "\u2200 {F : Type} [Field F] (r : F[X]) (S : Finset F) (hne : r \u2260 0)\n    (hroots : \u2200 x \u2208 S, r.IsRoot x), S.card \u2264 r.natDegree",
+      "negative": "\u2200 (r : (ZMod 5)[X]) (S : Finset (ZMod 5)),\n      (\u2200 x \u2208 S, r.IsRoot x) \u2192 S.card \u2264 r.natDegree",
+      "leakage": "Mathlib contains an equivalent uniqueness theorem and constituent lemmas. Reference Scribe proof modules must not be imported. This is not a contamination-free benchmark.",
+      "validation": {
+        "positive": "Scribe.Protocol.sample_root_bound",
+        "negative_refutation": "Scribe.Protocol.Mutations.dropped_nonzero_root_bound"
+      }
+    },
+    {
+      "id": "evaluation_unique",
+      "prefix": "import Mathlib.Algebra.Polynomial.Roots\nimport Mathlib.Data.ZMod.Basic\nimport Mathlib.Algebra.Field.ZMod\nimport Mathlib.Tactic.NormNum\nimport ZkGadgets.Audit\nopen Polynomial\n",
+      "positive": "\u2200 {F : Type} [Field F] (p q : F[X]) (S : Finset F)\n    (hagrees : \u2200 x \u2208 S, p.eval x = q.eval x)\n    (hdegree : max p.natDegree q.natDegree < S.card), p = q",
+      "negative": "\u2200 (p q : (ZMod 5)[X]) (S : Finset (ZMod 5)),\n      (\u2200 x \u2208 S, p.eval x = q.eval x) \u2192\n      max p.natDegree q.natDegree \u2264 S.card \u2192 p = q",
+      "leakage": "Mathlib contains an equivalent uniqueness theorem and constituent lemmas. Reference Scribe proof modules must not be imported. This is not a contamination-free benchmark.",
+      "validation": {
+        "positive": "Scribe.Protocol.evaluation_unique",
+        "negative_refutation": "Scribe.Protocol.Mutations.nonstrict_uniqueness"
+      }
+    }
+  ],
+  "extra_negative_refutations": [
+    "Scribe.Protocol.Mutations.omitted_rhs_degree",
+    "Scribe.Protocol.Mutations.repeated_samples"
+  ]
+}

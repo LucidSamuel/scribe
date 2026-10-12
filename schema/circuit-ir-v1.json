@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "circuit-ir-v1.json",
+  "title": "CircuitIR v1",
+  "description": "Interchange format for scribe's circuit IR: polynomial constraint systems over a prime field. The subject type of a circuit claim (scribe v2.1, locked decision 1). Vocabulary is exactly: field, public variables, private variables, definitions, constraints, provenance, spec.",
+  "type": "object",
+  "required": ["ir_version", "name", "modulus", "constraints"],
+  "additionalProperties": false,
+  "properties": {
+    "ir_version": {
+      "type": "string",
+      "pattern": "^1(\\.[0-9]+)*$",
+      "description": "IR format version. This schema describes major 1; minor suffixes (1.1, …) stay readable."
+    },
+    "name": { "type": "string" },
+    "modulus": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Prime modulus as a decimal string (arbitrary precision)."
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "public": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/variable" },
+      "description": "Variables the verifier sees."
+    },
+    "private": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/variable" },
+      "description": "Witness variables only the prover knows."
+    },
+    "definitions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/definition" },
+      "description": "Named linear forms, emitted as let bindings. Share the variable id namespace."
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/constraint" }
+    },
+    "hypotheses": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hypothesis" },
+      "description": "Extra hypotheses emitted as theorem parameters (e.g. field-size bounds)."
+    },
+    "soundness_spec": {
+      "type": ["string", "null"],
+      "description": "Raw Lean 4 proposition. Unstructured by design in v2.1."
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["frontend", "frontend_version", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "frontend": { "type": "string" },
+        "frontend_version": { "type": "string" },
+        "source": { "type": "string" },
+        "source_rev": { "type": ["string", "null"] }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string" }
+      }
+    },
+    "definition": {
+      "type": "object",
+      "required": ["id", "name", "terms"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string" },
+        "terms": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/term" }
+        }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "required": ["label", "terms"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "terms": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/term" }
+        },
+        "origin": {
+          "oneOf": [{ "$ref": "#/$defs/source_span" }, { "type": "null" }]
+        }
+      }
+    },
+    "term": {
+      "type": "object",
+      "required": ["coeff", "vars"],
+      "additionalProperties": false,
+      "properties": {
+        "coeff": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$",
+          "description": "Decimal coefficient, possibly negative."
+        },
+        "vars": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "Variable/definition ids whose product forms the monomial."
+        }
+      }
+    },
+    "source_span": {
+      "type": "object",
+      "required": ["file", "line"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "label": { "type": ["string", "null"] }
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "required": ["name", "lean_type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "lean_type": {
+          "type": "string",
+          "description": "Valid Lean 4 type expression (may reference variable names and p)."
+        }
+      }
+    }
+  }
+}

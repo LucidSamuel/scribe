@@ -1,11 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/gadget-ir",
+    "crates/scribe-core",
+    "crates/circuit-ir",
+    "crates/scribe-frontend",
+    "crates/frontend-toml",
+    "crates/frontend-ragu",
+    "crates/oracle-lean",
+    "crates/oracle-differential",
+    "crates/scribe-macros",
     "crates/lean-emit",
     "crates/proof-pilot",
     "crates/bench",
-    "crates/halva-bridge",
     "crates/scribe-cli",
 ]
 

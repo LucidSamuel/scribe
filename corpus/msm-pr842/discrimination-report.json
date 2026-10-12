@@ -1,0 +1,10 @@
+{
+  "corpus_version": "msm-pr842-corpus-v1",
+  "negatives_caught": 1,
+  "negatives_total": 2,
+  "escaped": [
+    "msm-pr842-mutant-8104-add-base"
+  ],
+  "positives_accepted": 1,
+  "positives_total": 1
+}

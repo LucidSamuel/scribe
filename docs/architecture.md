@@ -1,61 +1,62 @@
-# architecture
+# Architecture
 
-## data flow
+Scribe hosts acceptance oracles and measures their ability to distinguish known
+positive and negative claims. The verdict core is independent of the subject:
+a Lean proof and a differential test are different kinds of evidence.
+
+## Data flow
 
 ```mermaid
 graph LR
-    A[gadget.toml] -->|gadget-ir| B[Gadget struct]
-    B -->|lean-emit| C[.lean scaffold]
-    C -->|proof-pilot| D[proven .lean file]
-    D -->|lake build| E{kernel check}
-    E -->|pass| F[commit + PR]
-    E -->|fail| C
+    A[TOML or Ragu circuit] --> B[CircuitIR]
+    B --> C[Lean scaffold]
+    C --> D[proof-pilot: prove or refute]
+    D --> E[Lean oracle]
+    F[MSM implementation pair] --> G[Differential oracle]
+    E --> H[Verdict with discrimination status]
+    G --> H
+    I[Versioned positive and negative corpora] --> H
 ```
 
-## crates
+## Crate boundaries
 
-### gadget-ir
+| Crate | Responsibility |
+|---|---|
+| `scribe-core` | Domain-independent claims, oracles, corpora, outcomes and verdicts; every verdict carries measured or explicitly unmeasured discrimination. |
+| `circuit-ir` | Polynomial constraints, public/private variables, specifications and provenance; TOML/JSON representation. |
+| `scribe-frontend` | Circuit extraction interface. |
+| `frontend-toml` | Hand-authored TOML input and emitter regression snapshots. |
+| `frontend-ragu` | Structure-only Ragu extraction, checked against host gate/constraint counts; pinned upstream revision. |
+| `scribe-macros` | Extraction through a circuit crate's ordinary Rust tests. |
+| `lean-emit` | Circuit proof/refutation scaffolds and audit commands. |
+| `proof-pilot` | Bounded LLM proof-body editing, build/LSP feedback, journals and replay. |
+| `oracle-lean` | Circuit claims adjudicated by kernel-checked proofs or refutations; exhaustion remains undetermined. |
+| `oracle-differential` | Finite MSM differential comparisons and their discrimination corpus; not a universal equivalence proof. |
+| `scribe-cli` | User commands, schema checks, artifact binding, cache and corpus operations. |
+| `bench` | Repeated gadget sessions, pass@k, Wilson intervals and planted-negative alarms. |
 
-Minimal intermediate representation for ZK constraint systems. A `Gadget` is:
+## Acceptance boundaries
 
-- A prime modulus (decimal string, arbitrary precision)
-- A list of named witness variables
-- A list of polynomial constraints (each a sum of monomial terms equal to zero)
+The proof loop builds the Lake project and compiles the exact target file.
+It patches proof bodies while preserving statements, and screens forbidden
+source tokens. Generated circuit scaffolds carry `#audit_axioms`, which checks
+transitive dependencies against `{propext, Classical.choice, Quot.sound}`.
+A scaffold containing a proof hole must fail that gate. A successful build alone
+is not an axiom audit for arbitrary external Lean files.
 
-The IR deliberately does not reference any ZK framework (arkworks, halo2, Ragu, etc.). It is the contract between the constraint source and the Lean emitter.
+`scribe check` binds recorded artifacts to regenerated circuit statements before
+caching their evidence. C1 hypothesis-use probes are reported, non-gating in
+that path; syntactic use is not proof that an assumption is logically necessary.
+C2/C3 finite-model witnesses test conclusion falsifiability and antecedent
+satisfiability. These checks provide evidence about a specification, not a proof
+that it expresses the intended protocol.
 
-Serialization format is TOML via `serde`.
+A refutation is evidence against the precise statement instantiated. Exhausting
+a refutation budget is not a soundness proof. Likewise, benchmark refusal of a
+planted negative is distinct from constructing its counterexample.
 
-### lean-emit
+## Scope
 
-Takes a `Gadget` and emits a Lean 4 source file containing:
-
-- Mathlib imports
-- Variable declarations for the prime field and witnesses
-- Constraint hypotheses as theorem preconditions
-- A soundness theorem statement with `sorry` as the proof body
-
-The emitted file is self-contained. `lake build` should typecheck it (modulo the `sorry`).
-
-### proof-pilot
-
-Drives the LLM to close the `sorry` in an emitted Lean file. The loop:
-
-1. Read the current `.lean` file
-2. Run `lake build`, capture errors
-3. Send the file + errors to `claude` with the system prompt from `prompts/lean-prover.md`
-4. Extract the suggested proof from the response
-5. Patch the file
-6. Repeat until `lake build` exits 0 or the iteration budget is exhausted
-
-Hard constraints enforced by the pilot:
-- Never modify the theorem statement
-- Never introduce `sorry`, `axiom`, or `native_decide`
-- Preserve later top-level declarations when patching the target proof
-- Stop at the configured iteration budget and report the last build error
-
-## why this works
-
-Lean's kernel is a total, decidable checker. `lake build` returning 0 means the proof is valid — not "tests passed," not "looks right," but *actually proven from axioms*. The LLM cannot fake this without using `sorry` or `axiom`, which we grep-block at the pre-commit hook and CI level.
-
-This makes the feedback loop qualitatively different from test-driven LLM coding.
+Current extraction and benchmarks primarily target circuit constraints; they do
+not establish protocol soundness or Rust-to-Lean semantic refinement. Retired
+integrations are recoverable from the archive revision listed in the README.

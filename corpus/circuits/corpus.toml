@@ -1,0 +1,81 @@
+# The circuit corpus (Corpus<CircuitClaim>, roadmap v2.1 Phase B).
+#
+# This is not a directory of test fixtures. It is the evidence behind every
+# verdict the Lean oracle issues (locked decision 5): versioned, monotonically
+# growing, with an id per instance so an escaped negative is reportable by
+# name. Every confirmed real-world bug becomes an entry here.
+#
+# kind = "negative": the oracle MUST reject (the spec is FALSE; a kernel-
+#   checked counterexample exists). An oracle that ACCEPTS one of these has
+#   escaped — the loudest signal the system can produce.
+# kind = "positive": the oracle MUST accept (the spec is true and provable).
+#
+# The gadget `name` inside each IR file is deliberately neutral: it becomes
+# the theorem name the model sees, and a "neg-..." name would leak the
+# expected answer. Only this manifest marks an instance negative, and the
+# model never sees this file.
+#
+# The committed validation run lives in discrimination-report.json; the
+# `validate_lean_oracle_against_corpus` test in oracle-lean regenerates it.
+
+version = "circuits-corpus-v1"
+
+# ── Negatives: benchmark/suite.toml's five kind = "negative" gadgets, promoted ──
+
+[[instances]]
+id = "neg-underconstrained-range"
+kind = "negative"
+file = "range-check-2bit.toml"
+origin = "benchmark/suite/16-neg-underconstrained-range.toml"
+note = "2-bit range check missing the b1 boolean constraint; x is unbounded (b0 = 0, b1 = 2 gives x = 4)"
+
+[[instances]]
+id = "neg-vacuous-constraint"
+kind = "negative"
+file = "zero-check.toml"
+origin = "benchmark/suite/17-neg-vacuous-constraint.toml"
+note = "only constraint is x - x = 0 but the spec claims x = 0; any x != 0 refutes it"
+
+[[instances]]
+id = "neg-is-zero-missing-constraint"
+kind = "negative"
+file = "zero-indicator.toml"
+origin = "benchmark/suite/18-neg-is-zero-missing-constraint.toml"
+note = "is-zero gadget missing x*out = 0; nonzero x can claim out = 1"
+
+[[instances]]
+id = "neg-swap-unconstrained-output"
+kind = "negative"
+file = "swap-pair.toml"
+origin = "benchmark/suite/19-neg-swap-unconstrained-output.toml"
+note = "swap gate with the out2 mux constraint dropped; out2 is a dangling wire"
+
+[[instances]]
+id = "neg-wrong-inverse-constraint"
+kind = "negative"
+file = "inverse-gate.toml"
+origin = "benchmark/suite/20-neg-wrong-inverse-constraint.toml"
+note = "inverse constraint typo (x*inv - inv = 0), satisfied by inv = 0 for any x"
+
+# ── Positives: provable specs, including the ragu-extracted proof target ──────
+
+[[instances]]
+id = "pos-ragu-boolean"
+kind = "positive"
+file = "ragu-boolean.json"
+origin = "frontend-ragu::circuits::BooleanBit, extracted at ragu fc61822c"
+note = "ragu_primitives::Boolean::alloc through the structure-only Driver; proven in lean/ZkGadgets/RaguBoolean.lean"
+
+[[instances]]
+id = "pos-boolean-check"
+kind = "positive"
+file = "boolean-check.toml"
+origin = "benchmark/suite/02-boolean-check.toml"
+note = "b*(b-1) = 0 implies b = 0 or b = 1"
+
+[[instances]]
+id = "pos-add-gate"
+kind = "positive"
+file = "add-gate.toml"
+origin = "benchmark/suite/05-add-gate.toml"
+note = "x + y - z = 0 implies z = x + y"

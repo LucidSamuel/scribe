@@ -3,6 +3,10 @@
 Status: in progress (started 2026-06-17). This file is the durable, authoritative
 spec for the v2 work. Agents implementing phases must read this first.
 
+> Continued in [`roadmap-v2.1.md`](roadmap-v2.1.md), which makes scribe
+> ecosystem-agnostic (one IR, many front-ends, verdict engine reachable from all
+> of them). Agent briefs live in [`docs/v2.1/`](docs/v2.1/).
+
 ## Goals (P1–P5)
 
 - **P1 `scribe verify`** — single command from a Halva *extractor project* (or

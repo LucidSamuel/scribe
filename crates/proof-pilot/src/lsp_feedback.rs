@@ -222,8 +222,7 @@ impl Drop for LspBridge {
 }
 
 /// The Python LSP bridge, embedded so the published crate is self-contained.
-/// (The canonical copy lives in the crate at scripts/lsp-server.py; the scribe
-/// repo also keeps one at the repo root for direct use.)
+/// The canonical source lives in this crate at scripts/lsp-server.py.
 const LSP_SERVER_SOURCE: &str = include_str!("../scripts/lsp-server.py");
 
 fn find_script() -> Result<String, String> {
@@ -238,6 +237,7 @@ fn find_script() -> Result<String, String> {
         ));
     }
     let candidates = [
+        "crates/proof-pilot/scripts/lsp-server.py",
         "scripts/lsp-server.py",
         "../scripts/lsp-server.py",
         "../../scripts/lsp-server.py",
