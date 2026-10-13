@@ -1,0 +1,28 @@
+{
+  "fixtures": {
+    "evaluation_difference": {
+      "proof": "by\n  intro F inst p q x\n  exact Polynomial.eval_sub p q x",
+      "refutation": "by\n  letI : Fact (1 < 5) := \u27e8by decide\u27e9\n  intro h\n  have bad := h 0 1 0\n  norm_num at bad\n  exact (by decide : (-1 : ZMod 5) \u2260 1) bad"
+    },
+    "difference_nonzero": {
+      "proof": "by\n  intro F inst p q hne\n  exact sub_ne_zero.mpr hne",
+      "refutation": "by\n  letI : Fact (1 < 5) := \u27e8by decide\u27e9\n  intro h\n  exact h 0 0 (by simp)"
+    },
+    "sample_root_bound": {
+      "proof": "by\n  intro F inst r S hne hroots\n  apply Polynomial.card_le_degree_of_subset_roots\n  intro x hx\n  exact (Polynomial.mem_roots hne).mpr (hroots x hx)",
+      "refutation": "by\n  letI : Fact (1 < 5) := \u27e8by decide\u27e9\n  intro h\n  have bad := h 0 {0} (by simp [Polynomial.IsRoot])\n  simp at bad"
+    },
+    "difference_degree": {
+      "proof": "by\n  intro F inst p q\n  exact Polynomial.natDegree_sub_le p q",
+      "refutation": "by\n  letI : Fact (1 < 5) := \u27e8by decide\u27e9\n  intro h\n  have bad := h Polynomial.X 0\n  simp at bad"
+    },
+    "agreement_is_root": {
+      "refutation": "by\n  letI : Fact (1 < 5) := \u27e8by decide\u27e9\n  intro h\n  have bad := h 1 1 0 rfl\n  norm_num [Polynomial.IsRoot] at bad\n  exact (by decide : (2 : ZMod 5) \u2260 0) bad",
+      "proof": "by\n  intro F inst p q x h\n  simp [Polynomial.IsRoot, h]"
+    },
+    "evaluation_unique": {
+      "proof": "by\n  intro F inst p q S hagrees hdegree\n  exact Polynomial.eq_of_natDegree_lt_card_of_eval_eq' p q S hagrees hdegree",
+      "refutation": "by\n  letI : Fact (1 < 5) := \u27e8by decide\u27e9\n  intro h\n  have bad := h Polynomial.X 0 {0} (by simp) (by simp)\n  exact Polynomial.X_ne_zero bad"
+    }
+  }
+}

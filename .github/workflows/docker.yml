@@ -57,6 +57,7 @@ jobs:
           context: .
           # build (validate) on PRs; build + push on main / tags.
           push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
@@ -67,3 +68,41 @@ jobs:
           build-args: |
             UBUNTU_VERSION=24.04
             RUST_VERSION=1.97.1
+
+      - uses: actions/setup-python@v5
+        if: github.event_name == 'pull_request'
+        with:
+          python-version: '3.12'
+
+      - name: Prepare isolated proof-checking image
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          BASE_IMAGE=$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)
+          docker build --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --tag scribe:pilot-isolated - < benchmark/protocol-pilot/Dockerfile
+
+      - name: Isolated proof acceptance regressions
+        if: github.event_name == 'pull_request'
+        env:
+          SCRIBE_PILOT_DOCKER_TESTS: '1'
+        run: python3 -m unittest discover -s scripts/tests -v
+
+      - name: Recompose a protocol root and refute a planted negative
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/protocol_pilot.py corpus/protocol/manifest.json --mode replay \
+            --docker-image scribe:pilot-isolated \
+            --replay benchmark/protocol-pilot/smoke-replay.json \
+            --job 16-evaluation_unique-decomposition-positive-0 \
+            --job 33-evaluation_unique-direct-negative-0 \
+            --output .local/protocol-pilot-ci
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('.local/protocol-pilot-ci/report.json').read_text())
+          assert report['outcomes']['root_closed'] == 1, report
+          assert report['outcomes']['checked_refutation'] == 1, report
+          assert report['sessions'] == 2 and not report['empirical'], report
+          PY

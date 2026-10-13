@@ -15,6 +15,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace
       - run: cargo test --workspace
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pilot scheduling, budgets and acceptance regressions
+        run: python3 -m unittest discover -s scripts/tests -v
 
   lean:
     name: Lean proofs and artifact bindings
