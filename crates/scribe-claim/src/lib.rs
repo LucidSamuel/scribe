@@ -77,7 +77,7 @@ pub struct SealedPackage {
     package_sha256: String,
 }
 
-pub fn sha256(bytes: &[u8]) -> String {
+fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 

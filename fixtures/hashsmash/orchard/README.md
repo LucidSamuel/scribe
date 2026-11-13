@@ -10,11 +10,12 @@ path explicitly and check the verifier and constant-file hashes before loading
 only the organizer permutation module. They do not load or execute candidate
 Python, launch judges, or contact Yukon.
 
-From the Scribe repository root:
+From the Scribe repository root, set `ORGANIZER_ROOT` to your pinned organizer
+checkout before the differential test:
 
 ```sh
 python3 scripts/generate-orchard-constants.py --check
-python3 scripts/test-orchard-reference.py --organizer-root /path/to/hashsmash-pareto
+python3 scripts/test-orchard-reference.py --organizer-root "$ORGANIZER_ROOT"
 cargo run -p scribe-cli -- claim verify --package examples/claims/orchard-model.json --root . --lake-dir lean
 ```
 

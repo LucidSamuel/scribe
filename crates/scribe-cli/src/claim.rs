@@ -7,7 +7,7 @@ use std::{
 };
 
 #[derive(Args)]
-pub struct ClaimArgs {
+pub(crate) struct ClaimArgs {
     #[command(subcommand)]
     command: ClaimCommand,
 }
@@ -182,7 +182,7 @@ fn verify(package: ClaimPackage, root: &Path, lake: &Path) -> Result<serde_json:
     }))
 }
 
-pub fn run(args: ClaimArgs) {
+pub(crate) fn run(args: ClaimArgs) {
     let result = (|| -> Result<serde_json::Value, String> {
         match args.command {
             ClaimCommand::Seal { package, root } => {
