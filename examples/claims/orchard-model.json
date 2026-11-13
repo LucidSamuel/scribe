@@ -55,7 +55,7 @@
     },
     "claim-audit": {
       "path": "lean/ZkGadgets/ClaimAudit.lean",
-      "sha256": "eca237dca264151d60bd646fdaf069f34832f4d5a8778402be9aac1d15d63cf0"
+      "sha256": "f2e1e901e8275ae16cedfd62e0d8959594b6fb3d9217708def4db6d1d0e0b4ec"
     }
   },
   "propositions": [
@@ -71,14 +71,14 @@
     },
     {
       "declaration": "Scribe.Poseidon.Orchard.schedule_r3",
-      "statement": "Scribe.Poseidon.Orchard.schedule ⟨3, by decide⟩ = [0, 1, 2, 3, 4, 5, 6, 60, 61, 62, 63]",
+      "statement": "Scribe.Poseidon.Orchard.schedule \u27e83, by decide\u27e9 = [0, 1, 2, 3, 4, 5, 6, 60, 61, 62, 63]",
       "artifact_id": "model",
       "trust": "kernel",
       "axioms": []
     },
     {
       "declaration": "Scribe.Poseidon.Orchard.rejects_alias",
-      "statement": "∀ (r rho : Nat), Scribe.Poseidon.Orchard.digest? r Scribe.Poseidon.Orchard.modulus rho = none",
+      "statement": "\u2200 (r rho : Nat), Scribe.Poseidon.Orchard.digest? r Scribe.Poseidon.Orchard.modulus rho = none",
       "artifact_id": "model",
       "trust": "kernel",
       "axioms": [
@@ -88,7 +88,7 @@
     },
     {
       "declaration": "Scribe.Poseidon.Orchard.orchard_degree_bound",
-      "statement": "∀ (r : Scribe.Poseidon.Orchard.Rounds) (s : Scribe.Poseidon.Orchard.PolyState), Scribe.Poseidon.Orchard.bounded s 1 → Scribe.Poseidon.Orchard.bounded (Scribe.Poseidon.Orchard.polyPermute (Scribe.Poseidon.Orchard.schedule r) s) (5 ^ (8 + r.val))",
+      "statement": "\u2200 (r : Scribe.Poseidon.Orchard.Rounds) (s : Scribe.Poseidon.Orchard.PolyState), Scribe.Poseidon.Orchard.bounded s 1 \u2192 Scribe.Poseidon.Orchard.bounded (Scribe.Poseidon.Orchard.polyPermute (Scribe.Poseidon.Orchard.schedule r) s) (5 ^ (8 + r.val))",
       "artifact_id": "degree",
       "trust": "kernel",
       "axioms": [

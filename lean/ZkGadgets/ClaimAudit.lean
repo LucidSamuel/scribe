@@ -5,10 +5,15 @@ Inputs are string literals: the statement is parsed as one term, never commands.
 The first version supports closed declarations without universe parameters. -/
 open Lean Elab Command Meta
 
-elab "#audit_claim " decl:str statement:str declaredAxioms:str : command => do
+elab "#audit_claim " decl:str statement:str declaredAxioms:str expectedModule:str : command => do
   liftTermElabM do
     let name := decl.getString.toName
     let info ← getConstInfo name
+    let env ← getEnv
+    let some moduleIdx := env.getModuleIdxFor? name
+      | throwError "claim declaration must come from an imported artifact module"
+    unless env.header.moduleNames[moduleIdx.toNat]! == expectedModule.getString.toName do
+      throwError "claim declaration is not defined in its artifact module"
     unless info.isTheorem do
       throwError "claim declaration must be a theorem"
     unless info.levelParams.isEmpty do

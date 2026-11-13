@@ -44,7 +44,8 @@ cargo run -p scribe-cli -- claim verify \
 This example checks Scribe's existing x^5 S-box gadget, not the Orchard
 permutation or a collision. Verification builds the proof modules, parses each
 package statement as a single Lean term, binds it to the named theorem, sends
-the binding through the kernel, and checks actual transitive axioms against
+the binding through the kernel, verifies that the theorem is defined in its
+named artifact module (not merely a transitive import), and checks actual transitive axioms against
 both the package declaration and the trusted allowlist. A successful JSON
 receipt includes the sealed package, probe, build transcript, toolchain, and
 Scribe's environment fingerprint. Failure exits 3 without emitting a receipt.

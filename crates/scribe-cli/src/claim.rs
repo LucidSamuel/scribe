@@ -138,10 +138,14 @@ fn verify(package: ClaimPackage, root: &Path, lake: &Path) -> Result<serde_json:
     }
     for p in &package.propositions {
         probe.push_str(&format!(
-            "#audit_claim {} {} {}\n",
+            "#audit_claim {} {} {} {}\n",
             lean_string(&p.declaration),
             lean_string(&p.statement),
-            lean_string(&p.axioms.join(","))
+            lean_string(&p.axioms.join(",")),
+            lean_string(&module_name(
+                &lake,
+                &root.join(&package.artifacts[&p.artifact_id].path),
+            )?)
         ));
     }
     // A fresh directory prevents concurrent invocations from sharing probes.

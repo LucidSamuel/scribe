@@ -66,7 +66,20 @@ with tempfile.TemporaryDirectory(prefix="ClaimRegression", dir=bench) as tempora
             assert expected_error in result.stderr, (label, result.stderr)
         print(f"PASS {label}", flush=True)
 
+    decoy = directory / "Decoy.lean"
+    proof_module = ".".join(proof.relative_to(lake).with_suffix("").parts)
+    decoy.write_text(f"import {proof_module}\n")
+
+    def wrong_artifact(candidate):
+        candidate["artifacts"]["decoy"] = {
+            "path": str(decoy.relative_to(repo)),
+            "sha256": hashlib.sha256(decoy.read_bytes()).hexdigest(),
+        }
+        candidate["propositions"][0]["artifact_id"] = "decoy"
+
     check("valid theorem binding", lambda p: None)
+    check("declaration in another module", wrong_artifact,
+          "claim declaration is not defined in its artifact module")
     check("wrong statement", lambda p: p["propositions"][0].update(statement="False"),
           "does not match theorem type")
     check("missing declaration", lambda p: p["propositions"][0].update(declaration="missing_claim"),

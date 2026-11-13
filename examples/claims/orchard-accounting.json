@@ -23,7 +23,7 @@
     },
     "claim-audit": {
       "path": "lean/ZkGadgets/ClaimAudit.lean",
-      "sha256": "eca237dca264151d60bd646fdaf069f34832f4d5a8778402be9aac1d15d63cf0"
+      "sha256": "f2e1e901e8275ae16cedfd62e0d8959594b6fb3d9217708def4db6d1d0e0b4ec"
     },
     "accounting": {
       "path": "lean/ZkGadgets/Poseidon/Accounting.lean",

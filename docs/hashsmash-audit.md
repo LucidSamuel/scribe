@@ -1,5 +1,14 @@
 # HashSmash Orchard integration and candidate audit
 
+This document combines reproducible Scribe checks with historical observations
+from a private competition checkout. The candidate proof, successor package and
+719-entry API snapshot are not published here. Their quoted contents, repairs
+and ranking cannot be independently reproduced from this repository; treat them
+as author observations, not publicly established findings or certificates.
+The public, reproducible result is the hash model and arithmetic conditional on
+the explicitly transcribed schedule and prices. It does not establish that the
+private candidate implements that schedule or achieves the reported score.
+
 The current three-round candidate matches the input package of submission
 `424fd2e1-a56b-4a4a-8864-224c95fae4a6`:
 `f3151c47514693f0739c59a0284d4eaa12c93b4083f60e44e01d687cb2193021`.
@@ -16,14 +25,14 @@ executed during this audit. The frozen advisory packet contains no bound
 experiment execution report, which does not imply that the remote organizer
 failed to execute them.
 
-## Findings to resolve before another submission
+## Private-checkout observations to resolve before another submission
 
 One fresh-context, read-only critic inspected the frozen package under all four
 initial review rubrics. This was one advisory critique, not four independent
 reviews or the official defender/adjudicator committee. The parent independently
 checked the two findings below against the exact package bytes.
 
-### Stage-D pointwise charge: concrete arithmetic discrepancy
+### Conditional stage-D arithmetic discrepancy
 
 At proof line 89, the recursive node's two-output pointwise pass lists six loads,
 two stores, four multiplications and two additions/subtractions, but charges 20
@@ -136,7 +145,7 @@ Delta(j)=2 Delta(j-1)+14*2^(j-1)=7*2^j*(j-6). Across the 28 outer calls it adds
 126,200,636 bytes, rounded time 27.43528, memory 26.91115, score 34.34643.
 This does not validate the complete ledger or repair the terminal-zero rule.
 
-The live 719-entry submission snapshot showed our 424fd2e1 entry lowest in
+The unpublished 719-entry submission snapshot was observed to show our 424fd2e1 entry lowest in
 reported cost at three admitted partial rounds (34.34453), awaiting human
 acceptance. This is an AI-screened claim, not a certified winning result.
 The lowest reported four-round cost was 39.28233; round counts have distinct
