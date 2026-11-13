@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod butterfly;
+mod butterfly_report;
 mod cache;
 mod check;
 mod citations;

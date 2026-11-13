@@ -44,7 +44,14 @@ def main():
         assert "baseline outcome at divergence:" in text
         assert "reserve | alice | bob | treasury | total" in text
 
+        html = (root / "demo" / "report.html").read_text()
+        assert "Checked counterexample" in html and "Checked conservation theorem" in html
+        assert "<script" not in html.lower()
+        assert "Content-Security-Policy" in html
         candidate = by_variant["boundary_relax"]["search"]["candidate"]
+        exported = json.loads((root / "demo" / "candidates" / "boundary_relax.json").read_text())
+        assert exported == candidate
+        assert len(list((root / "demo" / "candidates").glob("*.json"))) == 4
         checked, _ = run("verify", root / "recheck", candidate=candidate)
         assert checked["verification_status"] == "checked", checked
         # Bypass the Rust precheck and falsify the fixed Lean proposition itself.

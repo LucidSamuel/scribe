@@ -144,6 +144,22 @@ fn execute(args: RunArgs, detail: bool) -> Result<(), String> {
         max_duration: Duration::from_secs(args.seconds),
     };
     let report = butterfly::evaluate(&checker, budget);
+    let candidates = args.output.join("candidates");
+    fs::create_dir(&candidates).map_err(|e| e.to_string())?;
+    for case in &report.cases {
+        if let Some(candidate) = &case.search.candidate {
+            fs::write(
+                candidates.join(format!("{}.json", case.variant.as_str())),
+                serde_json::to_vec_pretty(candidate).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    fs::write(
+        args.output.join("report.html"),
+        crate::butterfly_report::render(&report, &args.output),
+    )
+    .map_err(|e| e.to_string())?;
     let value = serde_json::to_value(&report).map_err(|e| e.to_string())?;
     let rendered = summary(&value, detail);
     fs::write(
@@ -153,7 +169,11 @@ fn execute(args: RunArgs, detail: bool) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     fs::write(args.output.join("summary.txt"), &rendered).map_err(|e| e.to_string())?;
     print!("{rendered}");
-    println!("Evidence: {}", args.output.display());
+    println!(
+        "Evidence: {}\nOpen report: {}",
+        args.output.display(),
+        args.output.join("report.html").display()
+    );
     if value["cases"].as_array().is_some_and(|cases| {
         cases
             .iter()

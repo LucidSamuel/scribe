@@ -12,8 +12,10 @@ cargo run -p scribe-cli -- butterfly evaluate --output /tmp/butterfly-evaluation
 Run from the repository root with the repository's Lean/Lake toolchain and
 dependencies installed. `--lake-dir` selects the trusted local Lean project.
 The output directory must not already exist: old verification evidence must not
-be mistaken for a new result. Each run writes `report.json`, `summary.txt`, and
-the checker evidence. `demo` includes candidate states and actions in the terminal;
+be mistaken for a new result. Each run writes `report.json`, `summary.txt`, a self-contained `report.html`,
+and the checker evidence. Open `report.html` locally to compare the original and
+mutant rules, inspect the trace and baseline divergence, and follow evidence links.
+The report uses no remote assets or scripts. `demo` includes candidate states and actions in the terminal;
 `evaluate` prints a compact per-variant summary. Both run the same seven variants.
 
 Search limits are per variant: `--max-depth 6 --max-nodes 20000 --max-edges 500000
@@ -93,11 +95,12 @@ within this action alphabet. The witness theorem does not certify shortestness,
 global minimality of the rule change, or empirical discovery power beyond these
 hand-designed examples. There is no promised five-step exploit.
 
-To recheck a candidate independently, extract its `search.candidate` object from
-`report.json` into a JSON file, then run:
+Each discovered candidate is also exported as `candidates/<variant>.json`,
+including candidates whose verification fails. Its presence alone is not proof;
+consult the recorded verification status. Recheck the boundary candidate with:
 
 ```sh
-cargo run -p scribe-cli -- butterfly verify --candidate candidate.json --output /tmp/butterfly-recheck
+cargo run -p scribe-cli -- butterfly verify --candidate /tmp/butterfly-demo/candidates/boundary_relax.json --output /tmp/butterfly-recheck
 ```
 
 This accepts typed mutation/action/state data only. Altering the mutation, initial
