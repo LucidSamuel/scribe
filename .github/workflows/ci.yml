@@ -34,6 +34,27 @@ jobs:
       - uses: leanprover/lean-action@v1
         with:
           lake-package-directory: lean
+      - name: Build claim verifier and run kernel rejection tests
+        run: |
+          cargo build --locked -p scribe-cli
+          python3 scripts/test-claim-verification.py
+      - name: Check pinned Orchard model and accounting
+        run: |
+          python3 scripts/generate-orchard-constants.py --check
+          python3 scripts/audit-orchard-accounting.py
+          target/debug/scribe claim seal --package examples/claims/package.json --root examples/claims
+          target/debug/scribe claim verify --package examples/claims/poseidon-sbox.json --root . --lake-dir lean
+          target/debug/scribe claim verify --package examples/claims/orchard-model.json --root . --lake-dir lean
+          target/debug/scribe claim verify --package examples/claims/orchard-accounting.json --root . --lake-dir lean
+      - name: Fetch pinned organizer reference
+        uses: actions/checkout@v4
+        with:
+          repository: Layr-Labs/hash-smash
+          ref: 4ae50b1f4dcc5e0504430e5ba47077b4657575e8
+          path: .local/organizer-reference
+          persist-credentials: false
+      - name: Compare Orchard with the pinned organizer reference
+        run: python3 scripts/test-orchard-reference.py --organizer-root .local/organizer-reference
       - name: Check exact protocol corpus statements
         run: python3 scripts/validate_protocol_corpus.py
       - name: Fetch pinned Rust dependencies for offline refinement tests

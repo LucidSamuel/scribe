@@ -94,7 +94,7 @@ Remaining work:
 5. Prove the two-round parametrization and check a real full-output collision
    when a witness is available.
 
-Attack construction stays in poseidon-smash. No organizer submission or external
+Attack construction stays in the separate competition candidate checkout. No organizer submission or external
 publishing is performed by this command.
 
 ## Recursive cost correction

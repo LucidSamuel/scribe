@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/Layr-Labs/hash-smash",
-  "source_revision": "4ae50b1f4dcc5e0504430e5ba47077b4657575e8",
+  "organizer_revision": "4ae50b1f4dcc5e0504430e5ba47077b4657575e8",
   "files": {
     "pareto/orchard-pallas-constants.json": "ab79bd05cbdcbe7c4c63ef7a4b95ffe8ec8938c1d71b49ceeebaf5b3f80aee62",
     "pareto/target-profiles/poseidon-orchard-r3-prefix-v1.json": "ed49648d3e9b2a3bf8f92b3231f739a4f031f39df7e89db7091b992294e6298c",
