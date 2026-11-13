@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/Layr-Labs/hash-smash",
+  "source_revision": "4ae50b1f4dcc5e0504430e5ba47077b4657575e8",
+  "files": {
+    "pareto/orchard-pallas-constants.json": "ab79bd05cbdcbe7c4c63ef7a4b95ffe8ec8938c1d71b49ceeebaf5b3f80aee62",
+    "pareto/target-profiles/poseidon-orchard-r3-prefix-v1.json": "ed49648d3e9b2a3bf8f92b3231f739a4f031f39df7e89db7091b992294e6298c",
+    "pareto/orchard-cost-v2.json": "f21f2a1fbee2650fee8590e5e5c84561af9ef58e0d492196804bbc2ab2671219",
+    "pareto/scoring-policies/hashsmash-orchard-tm-v1.json": "e73dfe3ffca3f388433730b8fde7c4180437ef81b901f9e9944108ebe402e655",
+    "pareto/schemas/claim.json": "e1bd603cf3503cb960b7b6b6367aabbf276ab62beff6ea1872aeaf3f2e8093a7"
+  },
+  "reference_verifier_sha256": "78f26527cac679fc8a17a98f81d497f8428f402c82af748935d8827f8250f224",
+  "target": "poseidon-orchard-r3-prefix-v1",
+  "benchmark_id": "ac95110a-2f91-4f59-b4e2-03249e19fc2d",
+  "note": "Profile and policy snapshot only; no attack or collision proof. Profile full_rounds=56 is upstream metadata; the explicit round_selection defines eight full rounds plus r partial rounds."
+}

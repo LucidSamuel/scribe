@@ -166,6 +166,21 @@ scribe demo --verify                 # kernel-check the pre-computed proof
 scribe demo --live --backend claude  # full LLM proof loop on a fresh scaffold
 ```
 
+### `scribe claim`
+
+Seal claim metadata and artifact hashes, or bind declared statements to Lean
+theorems and check their actual axioms:
+
+```sh
+scribe claim verify --package examples/claims/orchard-model.json --root . --lake-dir lean
+scribe claim verify --package examples/claims/orchard-accounting.json --root . --lake-dir lean
+```
+
+The Orchard examples check the pinned hash model, a baseline degree bound and
+ledger arithmetic. They do not certify a collision attack or its success rate.
+Run verification only on trusted local Lean projects. See
+[claim packages](docs/claim-packages.md) for the receipt's scope and limitations.
+
 ### Running the loop directly
 
 ```sh

@@ -1210,6 +1210,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "scribe-claim"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "scribe-cli"
 version = "0.1.0"
 dependencies = [
@@ -1220,6 +1229,7 @@ dependencies = [
  "lean-emit",
  "oracle-lean",
  "proof-pilot",
+ "scribe-claim",
  "scribe-core",
  "scribe-frontend",
  "serde",

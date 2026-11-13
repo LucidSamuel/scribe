@@ -1,0 +1,61 @@
+{
+  "id": "orchard-field-ram-v2",
+  "version": 2,
+  "attack_class": "ordinary-collision",
+  "time_unit": "target-compressions",
+  "score": "log2(total charged time)",
+  "direction": "lower-is-better",
+  "minimum_success_probability": 0.39,
+  "computation_model": "Classical probabilistic Pallas field RAM with 256-bit words. One selected-round Orchard permutation is one target-compression unit. One field addition, subtraction or multiplication, or one primitive 256-bit word operation, costs 1/C. Inversion and exponentiation are NOT primitive: charge their constituent operations. C = 216 + 21*r for r partial rounds, using three multiplications per x^5 and the dense 3x3 MDS. This model is specific to Orchard; do not compare its normalized scores across hash families.",
+  "primitive_operations": [
+    "canonical Pallas field addition/subtraction",
+    "canonical Pallas field multiplication",
+    "256-bit load/store",
+    "256-bit modular addition/subtraction",
+    "bitwise AND/OR/XOR/NOT",
+    "shift or rotation",
+    "comparison",
+    "conditional branch",
+    "independent uniform random 256-bit word"
+  ],
+  "total_time_includes": [
+    "preprocessing",
+    "field sampling and rejection",
+    "message/differential construction",
+    "all failed and successful trials",
+    "sorting and lookup",
+    "collision checking",
+    "restart and success amplification"
+  ],
+  "memory_includes": [
+    "code",
+    "nonuniform advice",
+    "precomputed data",
+    "messages",
+    "working state",
+    "tables",
+    "retained randomness"
+  ],
+  "parallel_computation": "Charge total work summed across all processors, not parallel latency.",
+  "memory_scoring": "Required and reviewed as a metric only; no Pareto objective or tie-break.",
+  "score_metric": "timeLog2",
+  "nonuniform_advice": "Charge all construction/preprocessing and advice; a stored collision is not a cheap construction.",
+  "probability_space": "Fresh independent algorithmic coins, fixed selected target. Seeded experiments do not prove ideal randomness.",
+  "heuristics": "Apply the original paired-lanes-v1 qualification criteria.",
+  "nominal_reference": "log2(Pallas field cardinality)/2, approximately 127; not a qualified baseline or proven concrete cost.",
+  "quantum": "Quantum algorithms are out of scope.",
+  "algebraic_estimates": {
+    "id": "orchard-finite-work-v1",
+    "matrix_multiplication_exponent": 2.8,
+    "omega_scope": "Substitute omega = 2.8 in algebraic estimates whose stated bound is parameterized by the dense matrix-multiplication exponent. This is an organizer accounting convention, not a theorem or a unit-cost matrix primitive. Retain the bound's other factors and applicability conditions. Do not replace the counted operations of an explicit algorithm (for example cubic elimination) with a cheaper n^2.8 estimate. Structured or sparse methods require their own supported finite bound.",
+    "hidden_multiplicative_constant": "No default constant. Supply a positive finite coefficient or conservative finite upper bound justified from the specified algorithm, recurrence, or a reproduced finite bound. O, Theta, soft-O and an exponent alone do not justify coefficient 1. A numerical guess is not evidence.",
+    "logarithm_base": 2,
+    "logarithmic_factors": "Retain every logarithmic factor in the chosen algorithm or bound. Use base 2 for newly stated logs; convert another specified base exactly, including the resulting coefficient. Soft-O must be expanded before producing a score. Do not assign a universal log exponent or silently drop an unspecified factor.",
+    "finite_dimensions": "Instantiate the selected round count, Pallas field, polynomial degrees, matrix dimensions, sparsity, block counts and padding at their actual finite values. Round integer dimensions, recursion depths and repetitions up where required by the algorithm. Rectangular matrices require a justified rectangular/block calculation or explicit square padding charged at the padded size; a square exponent alone does not price them.",
+    "lower_order_terms": "Include additive setup and lower-order work, or absorb it into an explicit justified upper bound valid at the submitted dimensions. Asymptotic negligibility alone does not permit omission.",
+    "operation_conversion": "A bound counting field multiplications alone still requires additions, subtraction, constituent inversion/exponentiation work, memory accesses and the other charged work. Convert the complete total with C = 216 + 21*r. Count each operation once: do not add the expanded reference arithmetic again when it is already covered by a charged permutation call.",
+    "probability_and_repetition": "Account for a finite work budget achieving the claimed success probability, at least 0.39, including failure, restart and amplification costs. Expected work alone is insufficient without a justified tail or restart argument.",
+    "evidence_and_uncertainty": "Reproduce the finite formula, coefficient justification and applicability conditions in the candidate; the judge cannot fetch citations. Evidence-supported extrapolations may be declared as score-critical heuristics with parameter regime, limitations and score sensitivity under paired-lanes-v1. No automatic qualification or new hard rejection gate is introduced. Bare asymptotic notation or an unsupported coefficient leaves the affected cost obligation unresolved; do not mark it supported or invent a replacement score.",
+    "numerical_reporting": "Sum all nonoverlapping work before taking log2. Use sufficient precision or log-space arithmetic for large terms. A declared upper bound must not be rounded downward; displayed UI rounding does not change the submitted bound."
+  }
+}

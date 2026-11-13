@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "claim_id": "integrity-demo",
+  "source_revision": "bddd7253f551f98ed60a4f9ebcc8da14dd5ac3e7",
+  "toolchain": "example only; not checked",
+  "parameters": {},
+  "artifacts": {
+    "proof": {
+      "path": "Example.lean",
+      "sha256": "6a86b2a1bbbef58206149adca56c9be3f8f53c6b84ac0a5db081b5b478869af4"
+    }
+  },
+  "propositions": [
+    {
+      "declaration": "claim_example",
+      "statement": "True",
+      "artifact_id": "proof",
+      "trust": "unchecked",
+      "axioms": []
+    }
+  ],
+  "heuristics": [],
+  "cost_ledger": []
+}

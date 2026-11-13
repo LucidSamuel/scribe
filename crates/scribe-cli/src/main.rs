@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 mod cache;
 mod check;
 mod citations;
+mod claim;
 mod corpus_ops;
 mod orchestrate;
 mod verdict;
@@ -19,6 +20,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Seal a generic claim package after metadata and artifact integrity checks.
+    Claim(claim::ClaimArgs),
     /// Run the range-check demonstration pipeline (no Lean or API key required
     /// by default).
     ///
@@ -379,6 +382,7 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Claim(args) => claim::run(args),
         Commands::Demo(args) => {
             orchestrate::run_demo(args);
         }

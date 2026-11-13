@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "claim_id": "orchard-recursive-ledger-correction",
+  "source_revision": "bddd7253f551f98ed60a4f9ebcc8da14dd5ac3e7",
+  "toolchain": "leanprover/lean4:v4.30.0-rc2",
+  "parameters": {
+    "scope": "Arithmetic conditional on the transcribed node prices and outer-call schedule; does not certify implementation, total cost, memory allocation, success probability, or competition qualification.",
+    "source_revision_role": "Base revision before these local additions; artifact hashes identify the actual proof bytes.",
+    "submission": "424fd2e1-a56b-4a4a-8864-224c95fae4a6"
+  },
+  "artifacts": {
+    "toolchain": {
+      "path": "lean/lean-toolchain",
+      "sha256": "ce4c4e3d87434b9663f46de25ce34b48a0cf0d392e0a320a0787b4674a2d7b61"
+    },
+    "lake-manifest": {
+      "path": "lean/lake-manifest.json",
+      "sha256": "d216a7ebbbfeda85e885d3b74f02d3116f22680df29493e59187c8ce58322946"
+    },
+    "audit": {
+      "path": "lean/ZkGadgets/Audit.lean",
+      "sha256": "9a4e20f9f892909c2bac1a42cc23e71af0e54dc11ba777204c895087b649201e"
+    },
+    "claim-audit": {
+      "path": "lean/ZkGadgets/ClaimAudit.lean",
+      "sha256": "eca237dca264151d60bd646fdaf069f34832f4d5a8778402be9aac1d15d63cf0"
+    },
+    "accounting": {
+      "path": "lean/ZkGadgets/Poseidon/Accounting.lean",
+      "sha256": "e69e4e132d67a6985dc113ac8eaa0dd34b33214ae3681a0b5ff5faf4e2477d15"
+    },
+    "arithmetic-script": {
+      "path": "scripts/audit-orchard-accounting.py",
+      "sha256": "bbbcef7454ebc0358ad75dbff97ef54feeb083c240cd2a06a5b10fced7e22027"
+    }
+  },
+  "propositions": [
+    {
+      "declaration": "Scribe.Poseidon.Orchard.Accounting.correction_closed_form",
+      "statement": "\u2200 (depth : Nat), Scribe.Poseidon.Orchard.Accounting.correction depth = 7 * 2 ^ (depth + 6) * depth",
+      "artifact_id": "accounting",
+      "trust": "kernel",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "declaration": "Scribe.Poseidon.Orchard.Accounting.total_correction",
+      "statement": "Scribe.Poseidon.Orchard.Accounting.totalCorrection = 66732288",
+      "artifact_id": "accounting",
+      "trust": "kernel",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "declaration": "Scribe.Poseidon.Orchard.Accounting.corrected_total",
+      "statement": "50567592471 + Scribe.Poseidon.Orchard.Accounting.totalCorrection = 50634324759",
+      "artifact_id": "accounting",
+      "trust": "kernel",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "declaration": "Scribe.Poseidon.Orchard.Accounting.corrected_memory",
+      "statement": "126200572 + ((8 * 22 + 3) - (8 * 20 + 3)) * 4 = (126200636 : Nat)",
+      "artifact_id": "accounting",
+      "trust": "kernel",
+      "axioms": []
+    }
+  ],
+  "heuristics": [],
+  "cost_ledger": []
+}

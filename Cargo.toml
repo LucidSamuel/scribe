@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/scribe-core",
+    "crates/scribe-claim",
     "crates/circuit-ir",
     "crates/scribe-frontend",
     "crates/frontend-toml",

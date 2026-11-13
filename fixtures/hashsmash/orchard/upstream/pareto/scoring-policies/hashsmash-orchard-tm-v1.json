@@ -1,0 +1,9 @@
+{
+  "id": "hashsmash-orchard-tm-v1",
+  "version": 1,
+  "formula": "timeLog2 + log2(memoryUnits)",
+  "sourceCostModelId": "orchard-field-ram-v2",
+  "timeUnit": "target-compressions",
+  "memoryUnitBytes": 1048576,
+  "minimumMemoryUnits": 1
+}

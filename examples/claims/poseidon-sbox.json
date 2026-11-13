@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "claim_id": "poseidon-sbox-soundness",
+  "source_revision": "bddd7253f551f98ed60a4f9ebcc8da14dd5ac3e7",
+  "toolchain": "leanprover/lean4:v4.30.0-rc2",
+  "parameters": {},
+  "artifacts": {
+    "proof": {
+      "path": "lean/ZkGadgets/PoseidonSbox.lean",
+      "sha256": "5148433d83b24e699415c7780e39c57d4f7a1dd48caff848993bb21fb1d0e8d9"
+    }
+  },
+  "propositions": [
+    {
+      "declaration": "poseidon_sbox_sound",
+      "statement": "∀ (p : ℕ) [Fact (Nat.Prime p)] (x q r y : ZMod p), q - x * x = 0 → r - q * q = 0 → y - r * x = 0 → y = x ^ 5",
+      "artifact_id": "proof",
+      "trust": "kernel",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "heuristics": [],
+  "cost_ledger": []
+}

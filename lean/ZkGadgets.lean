@@ -1,4 +1,5 @@
 import ZkGadgets.Audit
+import ZkGadgets.ClaimAudit
 import ZkGadgets.Field
 import ZkGadgets.RangeCheck
 import ZkGadgets.ConditionalSelect
@@ -12,3 +13,7 @@ import ZkGadgets.RaguBoolean
 import ZkGadgets.Corpus
 import ZkGadgets.Protocol.Mutations
 import ZkGadgets.Refinement.RaguHorner
+import ZkGadgets.Poseidon.Orchard
+import ZkGadgets.Poseidon.Vectors
+import ZkGadgets.Poseidon.Degree
+import ZkGadgets.Poseidon.Accounting

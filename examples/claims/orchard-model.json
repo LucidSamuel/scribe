@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "claim_id": "orchard-model-and-baseline-degree",
+  "source_revision": "bddd7253f551f98ed60a4f9ebcc8da14dd5ac3e7",
+  "toolchain": "leanprover/lean4:v4.30.0-rc2",
+  "parameters": {
+    "scope": "Hash model and baseline degree only; no collision, skipped-round bound, success probability, attack cost, or competition qualification.",
+    "organizer_revision": "4ae50b1f4dcc5e0504430e5ba47077b4657575e8",
+    "target": "poseidon-orchard-r3-prefix-v1"
+  },
+  "artifacts": {
+    "constants-json": {
+      "path": "fixtures/hashsmash/orchard/upstream/pareto/orchard-pallas-constants.json",
+      "sha256": "ab79bd05cbdcbe7c4c63ef7a4b95ffe8ec8938c1d71b49ceeebaf5b3f80aee62"
+    },
+    "profile": {
+      "path": "fixtures/hashsmash/orchard/upstream/pareto/target-profiles/poseidon-orchard-r3-prefix-v1.json",
+      "sha256": "ed49648d3e9b2a3bf8f92b3231f739a4f031f39df7e89db7091b992294e6298c"
+    },
+    "cost-model": {
+      "path": "fixtures/hashsmash/orchard/upstream/pareto/orchard-cost-v2.json",
+      "sha256": "f21f2a1fbee2650fee8590e5e5c84561af9ef58e0d492196804bbc2ab2671219"
+    },
+    "score-policy": {
+      "path": "fixtures/hashsmash/orchard/upstream/pareto/scoring-policies/hashsmash-orchard-tm-v1.json",
+      "sha256": "e73dfe3ffca3f388433730b8fde7c4180437ef81b901f9e9944108ebe402e655"
+    },
+    "constants-lean": {
+      "path": "lean/ZkGadgets/Poseidon/Constants.lean",
+      "sha256": "93420a644b77f3c8f5c1e9a8d7ec74281f1f36cd59e166586d79ea0b9430b0a7"
+    },
+    "model": {
+      "path": "lean/ZkGadgets/Poseidon/Orchard.lean",
+      "sha256": "b1c3ff359003fad83d851eba5c886535fc8e9235bd860997887b0cb1a2c7b5a3"
+    },
+    "vectors": {
+      "path": "lean/ZkGadgets/Poseidon/Vectors.lean",
+      "sha256": "31b355441a2962a796bf86825700a359d42b7b867a37352a6dd4c35bceb61fba"
+    },
+    "degree": {
+      "path": "lean/ZkGadgets/Poseidon/Degree.lean",
+      "sha256": "0cc5213535b4f8c9b71dcb29a877c77983786494c5ab32e06bc75cb1f1a00a97"
+    },
+    "toolchain": {
+      "path": "lean/lean-toolchain",
+      "sha256": "ce4c4e3d87434b9663f46de25ce34b48a0cf0d392e0a320a0787b4674a2d7b61"
+    },
+    "lake-manifest": {
+      "path": "lean/lake-manifest.json",
+      "sha256": "d216a7ebbbfeda85e885d3b74f02d3116f22680df29493e59187c8ce58322946"
+    },
+    "audit": {
+      "path": "lean/ZkGadgets/Audit.lean",
+      "sha256": "9a4e20f9f892909c2bac1a42cc23e71af0e54dc11ba777204c895087b649201e"
+    },
+    "claim-audit": {
+      "path": "lean/ZkGadgets/ClaimAudit.lean",
+      "sha256": "eca237dca264151d60bd646fdaf069f34832f4d5a8778402be9aac1d15d63cf0"
+    }
+  },
+  "propositions": [
+    {
+      "declaration": "Scribe.Poseidon.Orchard.zero_r3",
+      "statement": "Scribe.Poseidon.Orchard.digest? 3 0 0 = some 23920805377093618800924611112976634518331945812171967564107961257532193172290",
+      "artifact_id": "vectors",
+      "trust": "kernel",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "declaration": "Scribe.Poseidon.Orchard.schedule_r3",
+      "statement": "Scribe.Poseidon.Orchard.schedule ⟨3, by decide⟩ = [0, 1, 2, 3, 4, 5, 6, 60, 61, 62, 63]",
+      "artifact_id": "model",
+      "trust": "kernel",
+      "axioms": []
+    },
+    {
+      "declaration": "Scribe.Poseidon.Orchard.rejects_alias",
+      "statement": "∀ (r rho : Nat), Scribe.Poseidon.Orchard.digest? r Scribe.Poseidon.Orchard.modulus rho = none",
+      "artifact_id": "model",
+      "trust": "kernel",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "declaration": "Scribe.Poseidon.Orchard.orchard_degree_bound",
+      "statement": "∀ (r : Scribe.Poseidon.Orchard.Rounds) (s : Scribe.Poseidon.Orchard.PolyState), Scribe.Poseidon.Orchard.bounded s 1 → Scribe.Poseidon.Orchard.bounded (Scribe.Poseidon.Orchard.polyPermute (Scribe.Poseidon.Orchard.schedule r) s) (5 ^ (8 + r.val))",
+      "artifact_id": "degree",
+      "trust": "kernel",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "heuristics": [],
+  "cost_ledger": []
+}

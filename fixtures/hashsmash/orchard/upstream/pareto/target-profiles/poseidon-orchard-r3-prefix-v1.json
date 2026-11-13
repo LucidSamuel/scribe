@@ -1,0 +1,32 @@
+{
+  "id": "poseidon-orchard-r3-prefix-v1",
+  "status": "organizer-selected-experiment",
+  "algorithm": "poseidon-orchard",
+  "primitive": "Orchard P128Pow5T3 (Pallas)",
+  "rounds": 3,
+  "full_rounds": 56,
+  "round_count_unit": "partial rounds (plus eight fixed full rounds)",
+  "digest_bits": 256,
+  "field_modulus": "0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001",
+  "attack_class": "ordinary-collision",
+  "message_domain": "Exactly two canonical Pallas field elements nk,rho encoded as 32 little-endian bytes each. Each integer must be less than p; aliases reduced modulo p are rejected.",
+  "round_selection": "Original full rounds 0..3, original partial rounds 4..6 (empty when r=0), original full rounds 60..63. Constants and MDS pinned to deployed halo2_poseidon 0.2.0; never regenerate constants for reduced r.",
+  "initialization": "[nk, rho, 2^65]. This is ConstantLength<2>, not raw permutation collision and not the complete Orchard nullifier.",
+  "schedule": "Add constants, x^5 on all three coordinates in full rounds or coordinate zero in partial rounds, then dense deployed MDS over Pallas.",
+  "feed_forward": "None",
+  "digest_encoding": "Final coordinate zero, canonical 32-byte little-endian Pallas encoding. Compare the entire element.",
+  "reference_implementation": "verifier/poseidon.py:digest",
+  "specification": "zcash/halo2 halo2_poseidon-0.2.0 P128Pow5T3 ConstantLength<2>",
+  "relation": {
+    "preconditions": [
+      "Two distinct canonical (nk,rho) tuples"
+    ],
+    "postcondition": "The selected-round Orchard hashes are equal in Pallas."
+  },
+  "out_of_scope": [
+    "Modular-encoding aliases",
+    "Chosen capacity or IV",
+    "Changing constants, MDS, exponent or output",
+    "Quantum algorithms"
+  ]
+}
