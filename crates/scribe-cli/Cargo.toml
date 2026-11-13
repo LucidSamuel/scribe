@@ -10,6 +10,7 @@ name = "scribe"
 path = "src/main.rs"
 
 [dependencies]
+butterfly = { path = "../butterfly" }
 circuit-ir = { path = "../circuit-ir" }
 clap = { version = "4", features = ["derive"] }
 frontend-toml = { path = "../frontend-toml" }

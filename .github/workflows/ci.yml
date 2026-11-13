@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, butterfly]
   pull_request:
 
 jobs:
@@ -29,6 +29,10 @@ jobs:
       - uses: leanprover/lean-action@v1
         with:
           lake-package-directory: lean
+      - name: Check Butterfly witnesses and rejection controls
+        run: |
+          cargo build --locked -p scribe-cli
+          python3 scripts/test-butterfly.py
       - name: Check exact protocol corpus statements
         run: python3 scripts/validate_protocol_corpus.py
       - name: Fetch pinned Rust dependencies for offline refinement tests

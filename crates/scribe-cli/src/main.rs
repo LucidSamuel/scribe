@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+mod butterfly;
 mod cache;
 mod check;
 mod citations;
@@ -19,6 +20,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Find and independently check conservation-breaking rule mutations.
+    Butterfly(butterfly::ButterflyArgs),
     /// Run the range-check demonstration pipeline (no Lean or API key required
     /// by default).
     ///
@@ -379,6 +382,7 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Butterfly(args) => std::process::exit(butterfly::run(args)),
         Commands::Demo(args) => {
             orchestrate::run_demo(args);
         }

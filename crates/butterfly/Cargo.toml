@@ -1,0 +1,12 @@
+[package]
+name = "butterfly"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Finite mutation search with independently checked conservation counterexamples"
+
+[dependencies]
+scribe-core = { path = "../scribe-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
