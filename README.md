@@ -183,7 +183,10 @@ Run verification only on trusted local Lean projects. See
 
 ### Running the loop directly
 
-```sh
+This manual workflow writes local files and invokes your configured model
+backend. It is not an offline validation command.
+
+```text
 # emit a scaffold from an IR file
 cargo run -p lean-emit -- examples/poseidon-sbox/gadget.toml
 
