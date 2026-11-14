@@ -187,12 +187,13 @@ This manual workflow writes local files and invokes your configured model
 backend. It is not an offline validation command.
 
 ```text
-# emit a scaffold from an IR file
-cargo run -p lean-emit -- examples/poseidon-sbox/gadget.toml
+# emit a scaffold outside the library build root
+mkdir -p lean/ZkGadgets/Bench
+cargo run -p lean-emit -- examples/poseidon-sbox/gadget.toml > lean/ZkGadgets/Bench/AutoProof.lean
 
 # run the proof loop on a target file
-cargo run -p proof-pilot -- lean/ZkGadgets/AutoProof.lean \
-  --lake-dir lean \
+cargo run -p proof-pilot -- "$(pwd)/lean/ZkGadgets/Bench/AutoProof.lean" \
+  --lake-dir "$(pwd)/lean" \
   --max-iters 10 \
   --transcript transcript.log
 ```
