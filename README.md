@@ -245,7 +245,10 @@ Every theorem below is complete and kernel-checked (`lake build` is green, and e
 
 `crates/bench` runs the proof loop over a 20-gadget suite (`benchmark/suite.toml`, tiers 1–3 by difficulty) and reports statistics an eval can be judged on, not just a smoke-test pass count:
 
-```sh
+Manual live-model benchmark, requiring a configured model backend; this is not
+an offline validation command:
+
+```text
 cargo run -p zkgadget-eval -- --backend claude --budget 5 \
   --samples 3 --modes build,lsp -o results.json
 ```
